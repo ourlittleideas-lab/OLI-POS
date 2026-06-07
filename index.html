@@ -2146,42 +2146,56 @@ async function confirmBulkDelete(){
 // ─── Tabs ──────────────────────────────────────────────────────────────────
 function showTab(tab,el){
   const isMobile=window.innerWidth<=768;
+
+  // Update active tab button
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   if(el)el.classList.add('active');
 
-  const pos=document.getElementById('posPanel');
-  const cartPanel=document.getElementById('cartPanel');
-  const hist=document.getElementById('historyPanel');
-  const manage=document.getElementById('managePanel');
-  const app=document.getElementById('app');
+  // Destroy any live Chart.js instances so they don't keep ResizeObserver hooks alive
+  if(reportChartObj){reportChartObj.destroy();reportChartObj=null}
+  if(charts&&charts.active){charts.active.destroy();charts.active=null}
 
   if(isMobile){
-    // Mobile: toggle .m-active on the correct panel, close cart
+    // Step 1: hide EVERY panel immediately
     document.querySelectorAll('.m-panel').forEach(p=>p.classList.remove('m-active'));
-    cartPanel.classList.remove('cart-open');
-    if(tab==='pos'){pos.classList.add('m-active')}
-    else if(tab==='history'){hist.classList.add('m-active');setTimeout(renderHistory,50)}
-    else if(tab==='reports'){document.getElementById('reportsPanel').classList.add('m-active');setTimeout(renderReports,50)}
-    else if(tab==='manage'){manage.classList.add('m-active');renderManage()}
-    else if(tab==='refund'){document.getElementById('refundPanel').classList.add('m-active');renderRefundPanel()}
-    else if(tab==='staff'){document.getElementById('staffPanel').classList.add('m-active');loadStaff()}
+    document.getElementById('cartPanel').classList.remove('cart-open');
+
+    // Step 2: show only the target — defer heavy renders so browser paints the empty panel first
+    const map={
+      pos:()=>document.getElementById('posPanel').classList.add('m-active'),
+      history:()=>{document.getElementById('historyPanel').classList.add('m-active');requestAnimationFrame(renderHistory)},
+      reports:()=>{document.getElementById('reportsPanel').classList.add('m-active');requestAnimationFrame(renderReports)},
+      manage:()=>{document.getElementById('managePanel').classList.add('m-active');requestAnimationFrame(renderManage)},
+      refund:()=>{document.getElementById('refundPanel').classList.add('m-active');requestAnimationFrame(renderRefundPanel)},
+      staff:()=>{document.getElementById('staffPanel').classList.add('m-active');requestAnimationFrame(loadStaff)},
+    };
+    if(map[tab])map[tab]();
+
   } else {
-    // Desktop: use the #app grid as before
-    pos.style.display='none';
-    cartPanel.style.display='none';
-    hist.classList.remove('visible');
-    manage.classList.remove('visible');
+    const app=document.getElementById('app');
+
+    // Step 1: forcibly hide ALL panels (inline style + class)
+    ['posPanel','cartPanel'].forEach(id=>{const p=document.getElementById(id);if(p)p.style.display='none'});
+    ['historyPanel','reportsPanel','managePanel','refundPanel','staffPanel'].forEach(id=>{
+      const p=document.getElementById(id);if(p)p.classList.remove('visible');
+    });
+
+    // Step 2: show only the target — defer heavy renders so browser paints the new panel first
     if(tab==='pos'){
-      pos.style.display='';
-      cartPanel.style.display='';
+      // Set grid layout before un-hiding panels so they appear in the correct columns
       app.style.cssText='display:grid;grid-template-columns:1fr 380px;grid-template-rows:56px 1fr;height:100vh';
+      document.getElementById('posPanel').style.display='';
+      document.getElementById('cartPanel').style.display='';
     } else {
       app.style.cssText='display:grid;grid-template-columns:1fr;grid-template-rows:56px 1fr;height:100vh';
-      if(tab==='history'){hist.classList.add('visible');renderHistory()}
-      else if(tab==='reports'){document.getElementById('reportsPanel').classList.add('visible');renderReports()}
-      else if(tab==='manage'){manage.classList.add('visible');renderManage()}
-      else if(tab==='refund'){document.getElementById('refundPanel').classList.add('visible');renderRefundPanel()}
-      else if(tab==='staff'){document.getElementById('staffPanel').classList.add('visible');loadStaff()}
+      const map={
+        history:()=>{document.getElementById('historyPanel').classList.add('visible');requestAnimationFrame(renderHistory)},
+        reports:()=>{document.getElementById('reportsPanel').classList.add('visible');requestAnimationFrame(renderReports)},
+        manage:()=>{document.getElementById('managePanel').classList.add('visible');requestAnimationFrame(renderManage)},
+        refund:()=>{document.getElementById('refundPanel').classList.add('visible');requestAnimationFrame(renderRefundPanel)},
+        staff:()=>{document.getElementById('staffPanel').classList.add('visible');requestAnimationFrame(loadStaff)},
+      };
+      if(map[tab])map[tab]();
     }
   }
 }
