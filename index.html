@@ -59,9 +59,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .search-bar input{width:100%;padding:9px 14px 9px 34px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;outline:none}
 .search-bar input:focus{border-color:var(--primary)}
 .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px}
-.cats{display:flex;gap:8px;flex-wrap:wrap}
-.cat-btn{padding:4px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}
-.cat-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+/* ── Category Dropdown ── */
+.cat-dropdown-wrap{position:relative}
+.cat-dropdown{
+  width:100%;padding:10px 36px 10px 14px;
+  border:1px solid var(--border);border-radius:var(--radius);
+  font-size:14px;font-weight:600;color:var(--text);
+  background:var(--surface);cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;
+  transition:border-color .15s;
+}
+.cat-dropdown:focus{border-color:var(--primary)}
+.cat-dropdown-icon{
+  position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  pointer-events:none;color:var(--muted);font-size:13px;
+}
+.cat-count-badge{
+  display:inline-block;background:var(--light-green);color:var(--primary);
+  font-size:11px;font-weight:700;border-radius:10px;
+  padding:1px 7px;margin-left:6px;vertical-align:middle;
+}
 
 /* ── Product Grid ── */
 .products{display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:10px}
@@ -324,7 +341,12 @@ tbody tr:hover td{background:var(--bg)}
     <span class="search-icon">🔍</span>
     <input type="text" id="searchInput" placeholder="Search by name or SKU…" oninput="renderProducts()">
   </div>
-  <div class="cats" id="catBar"></div>
+  <div class="cat-dropdown-wrap">
+    <select class="cat-dropdown" id="catDropdown" onchange="setCategory(this.value)">
+      <option value="All">All Categories</option>
+    </select>
+    <span class="cat-dropdown-icon">▾</span>
+  </div>
   <div class="products" id="productGrid"></div>
 </div>
 
@@ -689,12 +711,16 @@ function genSku(category){
 function getCategories(){return['All',...new Set(products.map(p=>p.category))]}
 
 function renderCats(){
-  document.getElementById('catBar').innerHTML=getCategories().map(c=>
-    `<button class="cat-btn ${c===activeCategory?'active':''}" onclick="setCategory('${c}')">${c}</button>`
-  ).join('');
+  const sel=document.getElementById('catDropdown');
+  if(!sel)return;
+  const cats=getCategories();
+  sel.innerHTML=cats.map(c=>{
+    const count=c==='All'?products.length:products.filter(p=>p.category===c).length;
+    return `<option value="${c}" ${c===activeCategory?'selected':''}>${c} (${count})</option>`;
+  }).join('');
 }
 
-function setCategory(c){activeCategory=c;renderCats();renderProducts()}
+function setCategory(c){activeCategory=c;renderProducts()}
 
 // ─── Products (Register) ───────────────────────────────────────────────────
 function renderProducts(){
