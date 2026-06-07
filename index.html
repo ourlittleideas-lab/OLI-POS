@@ -217,8 +217,13 @@ tbody tr:hover td{background:var(--bg)}
   .topbar-spacer{flex:0 0 auto;min-width:6px}
   .tab-btn{flex:1;padding:6px 4px;font-size:11px;text-align:center;white-space:nowrap}
 
-  /* Hide the desktop #app grid entirely */
-  #app{display:none!important}
+  /* On mobile: #app becomes just the topbar container */
+  #app{
+    display:block!important;
+    height:52px!important;
+    overflow:visible!important;
+    position:relative;z-index:100;
+  }
 
   /* Mobile panels: fixed full-screen slots below topbar */
   .m-panel{
@@ -1127,7 +1132,7 @@ function showTab(tab,el){
     document.querySelectorAll('.m-panel').forEach(p=>p.classList.remove('m-active'));
     cartPanel.classList.remove('cart-open');
     if(tab==='pos'){pos.classList.add('m-active')}
-    else if(tab==='history'){hist.classList.add('m-active');renderHistory()}
+    else if(tab==='history'){hist.classList.add('m-active');setTimeout(renderHistory,50)}
     else if(tab==='manage'){manage.classList.add('m-active');renderManage()}
   } else {
     // Desktop: use the #app grid as before
