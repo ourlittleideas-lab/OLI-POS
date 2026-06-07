@@ -31,6 +31,7 @@ self.addEventListener('fetch',e=>{
   });
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -320,19 +321,101 @@ tbody tr:hover td{background:var(--bg)}
 /* Desktop: hide FAB and handle */
 .cart-fab{display:none}
 .cart-handle{display:none}
+
+/* ── Login / Loading ── */
+.full-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:36px 32px;width:360px;max-width:95vw;display:flex;flex-direction:column;gap:18px;box-shadow:0 8px 32px rgba(0,0,0,.08)}
+.login-logo{text-align:center}
+.login-logo .logo-icon{font-size:44px}
+.login-logo h1{font-size:26px;font-weight:900;color:var(--shadow-green);margin-top:6px}
+.login-logo p{font-size:13px;color:var(--muted);margin-top:2px}
+.login-error{color:var(--danger);font-size:13px;text-align:center;min-height:18px}
+.pin-input{width:100%;padding:12px;border:2px solid var(--border);border-radius:8px;font-size:22px;font-weight:700;letter-spacing:8px;text-align:center;outline:none}
+.pin-input:focus{border-color:var(--primary)}
+.login-btn{padding:12px;background:var(--shadow-green);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background .15s}
+.login-btn:hover{background:var(--primary)}
+
+/* ── Loading overlay ── */
+#loadingOverlay{background:var(--shadow-green);flex-direction:column;gap:14px}
+.loading-spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{color:rgba(255,255,255,.8);font-size:14px}
+
+/* ── Online dot ── */
+.online-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;transition:background .3s}
+.user-chip{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);padding:4px 10px;border-radius:20px;cursor:pointer}
+.user-chip span{font-size:12px;color:rgba(255,255,255,.85);font-weight:500}
+.logout-btn{padding:5px 12px;border:1px solid rgba(255,255,255,.25);border-radius:6px;background:none;color:rgba(255,255,255,.7);font-size:12px;cursor:pointer}
+.logout-btn:hover{background:rgba(255,255,255,.15);color:#fff}
+
+/* ── Staff panel ── */
+#staffPanel{padding:20px;flex-direction:column;gap:16px}
+.staff-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
+<!-- ── LOADING OVERLAY ── -->
+<div id="loadingOverlay" class="full-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loadingText">Starting OLI...</div>
+</div>
+
+<!-- ── LOGIN SCREEN ── -->
+<div id="loginScreen" class="full-overlay" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">🛒</div>
+      <h1>OLI</h1>
+      <p>Sign in to continue</p>
+    </div>
+
+    <!-- First-time setup -->
+    <div id="setupForm" style="display:none;display:flex;flex-direction:column;gap:12px">
+      <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px;font-size:13px;color:#92400e">
+        👋 Welcome! Create your admin account to get started.
+      </div>
+      <div class="form-group" style="margin:0"><label>Your Name</label><input type="text" id="setupName" placeholder="e.g. Maria Santos"></div>
+      <div class="form-group" style="margin:0"><label>PIN (4–6 digits)</label><input class="pin-input" type="password" id="setupPin" maxlength="6" placeholder="••••" inputmode="numeric"></div>
+      <div class="form-group" style="margin:0"><label>Confirm PIN</label><input class="pin-input" type="password" id="setupPin2" maxlength="6" placeholder="••••" inputmode="numeric"></div>
+      <div class="login-error" id="setupError"></div>
+      <button class="login-btn" onclick="createAdmin()">Create Admin Account</button>
+    </div>
+
+    <!-- Login form -->
+    <div id="loginForm" style="display:none;display:flex;flex-direction:column;gap:12px">
+      <div class="form-group" style="margin:0">
+        <label>Who are you?</label>
+        <select id="loginNameSel" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none">
+          <option value="">Select your name...</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>PIN</label>
+        <input class="pin-input" type="password" id="loginPin" maxlength="6" placeholder="••••" inputmode="numeric" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div class="login-error" id="loginError"></div>
+      <button class="login-btn" onclick="doLogin()">Sign In</button>
+    </div>
+  </div>
+</div>
+
 <div id="app" style="display:grid;grid-template-columns:1fr 380px;grid-template-rows:56px 1fr;height:100vh">
 
 <!-- TOP BAR -->
 <div class="topbar no-print" style="grid-column:1/-1">
-  <span style="font-size:22px">🛒</span>
+  <span style="font-size:20px">🛒</span>
   <h1>OLI</h1>
   <div class="topbar-spacer"></div>
   <button class="tab-btn active" data-tab="pos" onclick="showTab('pos',this)">Register</button>
-  <button class="tab-btn" data-tab="history" onclick="showTab('history',this)">Sales History</button>
-  <button class="tab-btn" data-tab="manage" onclick="showTab('manage',this)">Products / SKUs</button>
+  <button class="tab-btn" id="tabHistory" data-tab="history" onclick="showTab('history',this)" style="display:none">Sales History</button>
+  <button class="tab-btn" id="tabManage" data-tab="manage" onclick="showTab('manage',this)" style="display:none">Products / SKUs</button>
+  <button class="tab-btn" id="tabStaff" data-tab="staff" onclick="showTab('staff',this)" style="display:none">Staff</button>
+  <div class="user-chip" title="Signed in as" style="margin-left:4px">
+    <div class="online-dot" id="onlineDot"></div>
+    <span id="userNameDisplay">—</span>
+    <span style="font-size:10px;opacity:.5" id="userRoleDisplay"></span>
+  </div>
+  <button class="logout-btn" onclick="doLogout()">Sign Out</button>
 </div>
 
 <!-- LEFT: Register -->
@@ -406,6 +489,44 @@ tbody tr:hover td{background:var(--bg)}
   </div>
   <div class="manage-table-wrap" id="skuTable"></div>
 </div>
+</div>
+
+<!-- FULL PANEL: Staff Management -->
+<div class="full-panel m-panel" id="staffPanel">
+  <div class="panel-header">
+    <div class="panel-title">Staff Management</div>
+    <div class="staff-toolbar">
+      <button class="btn btn-primary" onclick="openStaffModal()">+ Add Staff</button>
+    </div>
+  </div>
+  <div class="manage-table-wrap" id="staffTable"></div>
+</div>
+</div>
+
+<!-- ── STAFF MODAL ── -->
+<div class="modal-overlay" id="staffModal">
+  <div class="modal">
+    <h2 id="staffModalTitle">Add Staff</h2>
+    <div class="form-group"><label>Full Name</label><input type="text" id="sName" placeholder="e.g. Maria Santos"></div>
+    <div class="form-group"><label>Email (optional)</label><input type="email" id="sEmail" placeholder="maria@example.com"></div>
+    <div class="form-group">
+      <label>Role</label>
+      <select id="sRole">
+        <option value="cashier">Cashier — Register only</option>
+        <option value="manager">Manager — Register + Sales History</option>
+        <option value="admin">Admin — Full access</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>PIN (4–6 digits)</label>
+      <input class="pin-input" type="password" id="sPin" maxlength="6" placeholder="••••" inputmode="numeric" style="font-size:18px;letter-spacing:6px">
+      <span class="help-text" id="sPinHelp">Required for new staff</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeStaffModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStaffMember()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── CHECKOUT MODAL ── -->
@@ -546,8 +667,13 @@ tbody tr:hover td{background:var(--bg)}
 </div>
 
 <script>
-// ─── State ─────────────────────────────────────────────────────────────────
-let products = JSON.parse(localStorage.getItem('pos_products3') || 'null') || [
+// ─── Supabase Config ────────────────────────────────────────────────────────
+const SUPABASE_URL='https://ntcqqursmymmykrdtsvn.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50Y3FxdXJzbXltbXlrcmR0c3ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4MjQwMzAsImV4cCI6MjA5NjQwMDAzMH0.5I5V0XBl_EQHulYOOpMUKE8KiOxT5V0RRGcBrW0rbkw';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// ─── Default Products (seed) ────────────────────────────────────────────────
+const DEFAULT_PRODUCTS=[
   {id:1,sku:'CASI-001',name:'Coasters - Flower Red (4pcs)',emoji:'🏺',price:400,cost:250,category:'Casa Inez',stock:1},
   {id:2,sku:'CASI-002',name:'Coasters - Flower Natural (4pcs)',emoji:'🏺',price:400,cost:250,category:'Casa Inez',stock:1},
   {id:3,sku:'CASI-003',name:'Coasters - Flower Green (4pcs)',emoji:'🏺',price:400,cost:250,category:'Casa Inez',stock:2},
@@ -686,17 +812,298 @@ let products = JSON.parse(localStorage.getItem('pos_products3') || 'null') || [
   {id:136,sku:'WEAV-003',name:'Bag Weaving Class',emoji:'🧵',price:1600,cost:1000,category:'Weaving Class',stock:0},
   {id:137,sku:'WEAV-004',name:'OLI Basic Weave',emoji:'🧵',price:1000,cost:300,category:'Weaving Class',stock:0},
 ];
-let sales = JSON.parse(localStorage.getItem('pos_sales2') || '[]');
-let cart = {};
-let activeCategory = 'All';
-let selectedPayment = 'cash';
-let editingProductId = null;
-let nextId = products.reduce((m,p)=>Math.max(m,p.id),0)+1;
-let historySort = {col:'date',dir:'desc'};
-let charts = {};
 
-function saveProducts(){localStorage.setItem('pos_products3',JSON.stringify(products))}
-function saveSales(){localStorage.setItem('pos_sales2',JSON.stringify(sales))}
+// ─── State ──────────────────────────────────────────────────────────────────
+let products=[];
+let sales=[];
+let staffList=[];
+let cart={};
+let currentUser=null;
+let activeCategory='All';
+let selectedPayment='cash';
+let editingProductId=null;
+let editingStaffId=null;
+let historySort={col:'date',dir:'desc'};
+let charts={};
+let offlineQueue=JSON.parse(localStorage.getItem('oli_offline_queue')||'[]');
+let isOnline=navigator.onLine;
+
+// ─── Loading helpers ─────────────────────────────────────────────────────────
+function showLoading(msg){
+  const el=document.getElementById('loadingOverlay');
+  document.getElementById('loadingText').textContent=msg||'Loading...';
+  el.style.display='flex';
+}
+function hideLoading(){document.getElementById('loadingOverlay').style.display='none'}
+
+// ─── Online/Offline ──────────────────────────────────────────────────────────
+window.addEventListener('online',async()=>{isOnline=true;updateOnlineDot();await syncOfflineQueue()});
+window.addEventListener('offline',()=>{isOnline=false;updateOnlineDot();toast('Offline — sales will sync when reconnected','warning')});
+function updateOnlineDot(){const d=document.getElementById('onlineDot');if(d)d.style.background=isOnline?'#22c55e':'#ef4444'}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+function getSession(){
+  const s=localStorage.getItem('oli_session');
+  if(!s)return null;
+  const sess=JSON.parse(s);
+  if(Date.now()>sess.expiry){localStorage.removeItem('oli_session');return null}
+  return sess.user;
+}
+
+async function startApp(){
+  showLoading('Starting OLI...');
+  // Try to restore session
+  const saved=getSession();
+  if(saved){
+    currentUser=saved;
+    await initApp();
+    return;
+  }
+  // Need login
+  try{
+    const{data,error}=await sb.from('staff').select('id,name,role').order('name');
+    staffList=data||[];
+    hideLoading();
+    if(!staffList.length){showSetupForm()}else{showLoginForm()}
+  }catch(e){
+    hideLoading();
+    showLoginForm();
+    document.getElementById('loginError').textContent='Cannot connect. Check internet connection.';
+  }
+}
+
+function showSetupForm(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('loginForm').style.display='none';
+  document.getElementById('setupForm').style.display='flex';
+}
+function showLoginForm(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('loginForm').style.display='flex';
+  document.getElementById('setupForm').style.display='none';
+  const sel=document.getElementById('loginNameSel');
+  sel.innerHTML=`<option value="">Select your name...</option>`+staffList.map(s=>`<option value="${s.id}">${s.name} (${s.role})</option>`).join('');
+}
+
+async function doLogin(){
+  const staffId=document.getElementById('loginNameSel').value;
+  const pin=document.getElementById('loginPin').value.trim();
+  const err=document.getElementById('loginError');
+  err.textContent='';
+  if(!staffId){err.textContent='Please select your name.';return}
+  if(!pin){err.textContent='Please enter your PIN.';return}
+  showLoading('Signing in...');
+  try{
+    const{data,error}=await sb.from('staff').select('*').eq('id',staffId).eq('pin',pin).maybeSingle();
+    if(!data){hideLoading();err.textContent='Incorrect PIN. Try again.';document.getElementById('loginPin').value='';return}
+    currentUser={id:data.id,name:data.name,role:data.role,email:data.email};
+    localStorage.setItem('oli_session',JSON.stringify({user:currentUser,expiry:Date.now()+12*60*60*1000}));
+    await initApp();
+  }catch(e){hideLoading();err.textContent='Connection error. Try again.'}
+}
+
+async function createAdmin(){
+  const name=document.getElementById('setupName').value.trim();
+  const pin=document.getElementById('setupPin').value;
+  const pin2=document.getElementById('setupPin2').value;
+  const err=document.getElementById('setupError');
+  err.textContent='';
+  if(!name||!pin){err.textContent='Fill in all fields.';return}
+  if(pin!==pin2){err.textContent='PINs do not match.';return}
+  if(pin.length<4){err.textContent='PIN must be at least 4 digits.';return}
+  showLoading('Creating account...');
+  try{
+    const{data,error}=await sb.from('staff').insert({name,role:'admin',pin,email:name.toLowerCase().replace(/\s+/g,'.')+'@oli.local'}).select().single();
+    if(error)throw error;
+    currentUser={id:data.id,name:data.name,role:'admin'};
+    localStorage.setItem('oli_session',JSON.stringify({user:currentUser,expiry:Date.now()+12*60*60*1000}));
+    await initApp();
+  }catch(e){hideLoading();document.getElementById('setupError').textContent='Error: '+e.message}
+}
+
+function doLogout(){
+  if(!confirm('Sign out of OLI?'))return;
+  localStorage.removeItem('oli_session');
+  location.reload();
+}
+
+// ─── App Init ────────────────────────────────────────────────────────────────
+async function initApp(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('userNameDisplay').textContent=currentUser.name;
+  document.getElementById('userRoleDisplay').textContent=currentUser.role;
+  showLoading('Loading products...');
+  await loadProducts();
+  showLoading('Loading sales...');
+  await loadSales();
+  hideLoading();
+  applyRolePermissions();
+  renderCats();renderProducts();renderCart();
+  updateOnlineDot();
+  syncOfflineQueue();
+}
+
+function applyRolePermissions(){
+  const r=currentUser?.role||'cashier';
+  document.getElementById('tabHistory').style.display=(r==='admin'||r==='manager')?'':'none';
+  document.getElementById('tabManage').style.display=r==='admin'?'':'none';
+  document.getElementById('tabStaff').style.display=r==='admin'?'':'none';
+}
+
+// ─── Data: Products ──────────────────────────────────────────────────────────
+async function loadProducts(){
+  try{
+    const{data,error}=await sb.from('products').select('*').order('category');
+    if(error)throw error;
+    if(!data.length){await seedProducts()}else{products=data;localStorage.setItem('oli_products_cache',JSON.stringify(products))}
+  }catch(e){
+    products=JSON.parse(localStorage.getItem('oli_products_cache')||'[]');
+    if(!products.length)products=DEFAULT_PRODUCTS.map((p,i)=>({...p,id:i+1}));
+    toast('Offline: using cached products','warning');
+  }
+}
+
+async function seedProducts(){
+  showLoading('Setting up products...');
+  const rows=DEFAULT_PRODUCTS.map(p=>({sku:p.sku,name:p.name,emoji:p.emoji,category:p.category,price:p.price,cost:p.cost||0,stock:p.stock||0}));
+  const{data,error}=await sb.from('products').insert(rows).select();
+  if(!error&&data){products=data;localStorage.setItem('oli_products_cache',JSON.stringify(products))}
+}
+
+async function saveProductToDb(pData){
+  const row={sku:pData.sku,name:pData.name,emoji:pData.emoji,category:pData.category,price:pData.price,cost:pData.cost||0,stock:pData.stock||0};
+  if(editingProductId){
+    const{data,error}=await sb.from('products').update(row).eq('id',editingProductId).select().single();
+    if(!error&&data){const i=products.findIndex(p=>p.id===editingProductId);if(i>=0)products[i]=data}
+    return{error};
+  }else{
+    const{data,error}=await sb.from('products').insert(row).select().single();
+    if(!error&&data)products.push(data);
+    return{error};
+  }
+}
+
+async function deleteProductFromDb(id){
+  const{error}=await sb.from('products').delete().eq('id',id);
+  if(!error)products=products.filter(p=>p.id!==id);
+  return{error};
+}
+
+function saveProducts(){
+  // Update local cache + sync Supabase stock changes after a sale
+  localStorage.setItem('oli_products_cache',JSON.stringify(products));
+  // Sync stock to Supabase (fire-and-forget)
+  Object.keys(cart).forEach(id=>{
+    const p=products.find(x=>x.id==id);
+    if(p)sb.from('products').update({stock:p.stock}).eq('id',p.id).then(()=>{});
+  });
+}
+
+// ─── Data: Sales ─────────────────────────────────────────────────────────────
+async function loadSales(){
+  try{
+    const{data,error}=await sb.from('sales').select('*').order('created_at',{ascending:false}).limit(500);
+    if(error)throw error;
+    sales=data.map(mapSale);
+    localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
+  }catch(e){sales=JSON.parse(localStorage.getItem('oli_sales_cache')||'[]')}
+}
+
+function mapSale(s){
+  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null};
+}
+
+function saveSales(){/* no-op: handled via saveSaleToDb */}
+
+async function saveSaleToDb(saleData){
+  const row={items:saleData.items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived};
+  if(!isOnline){
+    offlineQueue.push({...row,_ts:Date.now()});
+    localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
+    saleData.id='offline_'+Date.now();saleData.date=new Date().toISOString();
+    sales.unshift(saleData);localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
+    toast('Saved offline — will sync when online','warning');return;
+  }
+  try{
+    const{data,error}=await sb.from('sales').insert(row).select().single();
+    if(!error&&data){const m=mapSale(data);saleData.id=m.id;saleData.date=m.date}
+    sales.unshift(saleData);localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
+  }catch(e){
+    offlineQueue.push({...row,_ts:Date.now()});
+    localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
+    saleData.id='offline_'+Date.now();saleData.date=new Date().toISOString();
+    sales.unshift(saleData);localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
+    toast('Saved offline — will sync when online','warning');
+  }
+}
+
+async function syncOfflineQueue(){
+  if(!offlineQueue.length||!isOnline)return;
+  const toSync=[...offlineQueue];
+  offlineQueue=[];localStorage.setItem('oli_offline_queue','[]');
+  for(const{_ts,...row}of toSync){await sb.from('sales').insert(row)}
+  if(toSync.length){toast(`Synced ${toSync.length} offline sale(s)!`,'success');await loadSales()}
+}
+
+// ─── Data: Staff ─────────────────────────────────────────────────────────────
+async function loadStaff(){
+  const{data}=await sb.from('staff').select('*').order('name');
+  staffList=data||[];renderStaff();
+}
+
+function renderStaff(){
+  const tbl=document.getElementById('staffTable');if(!tbl)return;
+  if(!staffList.length){tbl.innerHTML=`<div class="no-data">No staff added yet</div>`;return}
+  const rc={admin:'background:#dcfce7;color:#166534',manager:'background:#dbeafe;color:#1e40af',cashier:'background:#f3f4f6;color:#374151'};
+  tbl.innerHTML=`<table class="manage-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th style="width:140px">Actions</th></tr></thead><tbody>
+  ${staffList.map(s=>`<tr>
+    <td><strong>${s.name}</strong>${s.id===currentUser?.id?' <span style="font-size:10px;color:var(--muted)">(you)</span>':''}</td>
+    <td style="color:var(--muted);font-size:12px">${s.email||'—'}</td>
+    <td><span class="badge" style="${rc[s.role]||''}">${s.role}</span></td>
+    <td>
+      <button onclick="openStaffModal('${s.id}')" style="padding:4px 10px;border:1px solid var(--border);border-radius:5px;font-size:12px;cursor:pointer;background:none;margin-right:4px">Edit</button>
+      ${s.id!==currentUser?.id?`<button onclick="deleteStaffMember('${s.id}')" style="padding:4px 10px;border:none;font-size:12px;cursor:pointer;background:none;color:var(--danger)">Remove</button>`:''}
+    </td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+function openStaffModal(id){
+  editingStaffId=id||null;
+  const s=id?staffList.find(x=>x.id===id):null;
+  document.getElementById('staffModalTitle').textContent=id?'Edit Staff':'Add Staff';
+  document.getElementById('sName').value=s?.name||'';
+  document.getElementById('sEmail').value=s?.email||'';
+  document.getElementById('sRole').value=s?.role||'cashier';
+  document.getElementById('sPin').value='';
+  document.getElementById('sPinHelp').textContent=id?'Leave blank to keep current PIN':'Required';
+  document.getElementById('staffModal').classList.add('open');
+}
+function closeStaffModal(){document.getElementById('staffModal').classList.remove('open')}
+
+async function saveStaffMember(){
+  const name=document.getElementById('sName').value.trim();
+  const role=document.getElementById('sRole').value;
+  const pin=document.getElementById('sPin').value;
+  const email=document.getElementById('sEmail').value.trim()||name.toLowerCase().replace(/\s+/g,'.')+'.'+Date.now()+'@oli.local';
+  if(!name){toast('Name is required','error');return}
+  if(!editingStaffId&&!pin){toast('PIN is required for new staff','error');return}
+  const row={name,role,email};if(pin)row.pin=pin;
+  showLoading('Saving...');
+  let err;
+  if(editingStaffId){const r=await sb.from('staff').update(row).eq('id',editingStaffId);err=r.error}
+  else{const r=await sb.from('staff').insert(row);err=r.error}
+  hideLoading();
+  if(err){toast('Error: '+err.message,'error');return}
+  toast(editingStaffId?'Staff updated':'Staff added','success');
+  closeStaffModal();await loadStaff();
+}
+
+async function deleteStaffMember(id){
+  if(!confirm('Remove this staff member?'))return;
+  const{error}=await sb.from('staff').delete().eq('id',id);
+  if(error){toast('Error: '+error.message,'error');return}
+  toast('Staff removed');await loadStaff();
+}
 
 // ─── SKU Generator ─────────────────────────────────────────────────────────
 function genSku(category){
@@ -850,31 +1257,30 @@ function calcChange(){
   if(paid>=totalRounded){d.style.display='block';d.textContent=`Change: ₱${(paid-totalRounded).toFixed(2)}`}
   else d.style.display='none';
 }
-function confirmSale(){
+async function confirmSale(){
   const{subtotal,disc,discAmt,tax,taxAmt,total}=getCartTotals();
   const totalRounded=parseFloat(total.toFixed(2));
   if(selectedPayment==='cash'){
     const paid=parseFloat(document.getElementById('cashReceived').value)||0;
     if(paid<totalRounded){toast('Cash received is less than total','error');return}
   }
+  const saleItems=Object.keys(cart).map(id=>{
+    const p=products.find(x=>x.id==id);
+    return{sku:p.sku,name:p.name,emoji:p.emoji,qty:cart[id],price:p.price};
+  });
+  // Deduct stock locally
   Object.keys(cart).forEach(id=>{
     const p=products.find(x=>x.id==id);
     if(p)p.stock=Math.max(0,p.stock-cart[id]);
   });
+  const sale={items:saleItems,subtotal,discAmt,taxAmt,total,disc,tax,payment:selectedPayment,cashReceived:selectedPayment==='cash'?parseFloat(document.getElementById('cashReceived').value)||0:null};
+  closeCheckout();
+  const prevCart={...cart};
+  clearCart();
+  renderProducts();
+  await saveSaleToDb(sale);
   saveProducts();
-  const sale={
-    id:Date.now(),
-    date:new Date().toISOString(),
-    items:Object.keys(cart).map(id=>{
-      const p=products.find(x=>x.id==id);
-      return{sku:p.sku,name:p.name,emoji:p.emoji,qty:cart[id],price:p.price};
-    }),
-    subtotal,discAmt,taxAmt,total,disc,tax,
-    payment:selectedPayment,
-    cashReceived:selectedPayment==='cash'?parseFloat(document.getElementById('cashReceived').value)||0:null
-  };
-  sales.unshift(sale);saveSales();
-  closeCheckout();clearCart();renderProducts();showReceipt(sale);
+  showReceipt(sale);
 }
 
 // ─── Receipt ───────────────────────────────────────────────────────────────
@@ -1188,7 +1594,7 @@ function openProductModal(id){
 }
 function closeProductModal(){document.getElementById('productModal').classList.remove('open')}
 
-function saveProduct(){
+async function saveProduct(){
   const name=document.getElementById('pName').value.trim();
   const price=parseFloat(document.getElementById('pPrice').value);
   const stock=parseInt(document.getElementById('pStock').value);
@@ -1196,32 +1602,38 @@ function saveProduct(){
   const emoji=document.getElementById('pEmoji').value.trim()||'📦';
   const skuInput=document.getElementById('pSku').value.trim();
   const cost=parseFloat(document.getElementById('pCost').value)||0;
-  const markup=parseFloat(document.getElementById('pMarkup').value)||0;
-  const profit=parseFloat(document.getElementById('pProfit').value)||0;
 
   if(!name||isNaN(price)||isNaN(stock)){toast('Fill in all required fields','error');return}
 
+  let sku;
   if(editingProductId){
     const p=products.find(x=>x.id===editingProductId);
-    const sku=skuInput||p.sku;
+    sku=skuInput||p.sku;
     if(products.some(x=>x.sku===sku&&x.id!==editingProductId)){toast('SKU already in use','error');return}
-    Object.assign(p,{name,price,stock,category:cat,emoji,sku,cost,markup,profit});
-    toast('Product updated','success');
   } else {
-    const sku=skuInput||genSku(cat);
+    sku=skuInput||genSku(cat);
     if(products.some(x=>x.sku===sku)){toast('SKU already in use','error');return}
-    products.push({id:nextId++,sku,name,price,stock,category:cat,emoji,cost,markup,profit});
-    toast('Product added','success');
   }
-  saveProducts();closeProductModal();renderManage();renderCats();renderProducts();
+
+  showLoading('Saving product...');
+  const{error}=await saveProductToDb({sku,name,price,stock,category:cat,emoji,cost});
+  hideLoading();
+  if(error){toast('Error: '+error.message,'error');return}
+  localStorage.setItem('oli_products_cache',JSON.stringify(products));
+  toast(editingProductId?'Product updated':'Product added','success');
+  closeProductModal();renderManage();renderCats();renderProducts();
 }
 
-function deleteProduct(id){
+async function deleteProduct(id){
   const p=products.find(x=>x.id===id);
   if(!confirm(`Delete "${p.name}" (${p.sku})?`))return;
-  products=products.filter(x=>x.id!==id);
+  showLoading('Deleting...');
+  const{error}=await deleteProductFromDb(id);
+  hideLoading();
+  if(error){toast('Error: '+error.message,'error');return}
   delete cart[id];
-  saveProducts();renderManage();renderCats();renderProducts();renderCart();
+  localStorage.setItem('oli_products_cache',JSON.stringify(products));
+  renderManage();renderCats();renderProducts();renderCart();
   toast(`${p.name} deleted`);
 }
 
@@ -1251,16 +1663,18 @@ function parseBulkSkus(){
     .split(/[\n,]+/).map(s=>s.trim().toUpperCase()).filter(Boolean);
 }
 
-function confirmBulkDelete(){
+async function confirmBulkDelete(){
   const skus=parseBulkSkus();
   if(!skus.length){toast('Enter at least one SKU','error');return}
   const toDelete=products.filter(p=>skus.includes(p.sku));
   if(!toDelete.length){toast('No matching SKUs found','error');return}
   if(!confirm(`Delete ${toDelete.length} product(s): ${toDelete.map(p=>p.sku).join(', ')}?`))return;
-  const ids=new Set(toDelete.map(p=>p.id));
-  products=products.filter(p=>!ids.has(p.id));
-  ids.forEach(id=>delete cart[id]);
-  saveProducts();closeBulkModal();renderManage();renderCats();renderProducts();renderCart();
+  showLoading('Deleting products...');
+  for(const p of toDelete){await sb.from('products').delete().eq('id',p.id)}
+  products=products.filter(p=>!toDelete.find(d=>d.id===p.id));
+  toDelete.forEach(p=>delete cart[p.id]);
+  localStorage.setItem('oli_products_cache',JSON.stringify(products));
+  hideLoading();closeBulkModal();renderManage();renderCats();renderProducts();renderCart();
   toast(`${toDelete.length} product(s) deleted`,'success');
 }
 
@@ -1283,6 +1697,7 @@ function showTab(tab,el){
     if(tab==='pos'){pos.classList.add('m-active')}
     else if(tab==='history'){hist.classList.add('m-active');setTimeout(renderHistory,50)}
     else if(tab==='manage'){manage.classList.add('m-active');renderManage()}
+    else if(tab==='staff'){document.getElementById('staffPanel').classList.add('m-active');loadStaff()}
   } else {
     // Desktop: use the #app grid as before
     pos.style.display='none';
@@ -1297,6 +1712,7 @@ function showTab(tab,el){
       app.style.cssText='display:grid;grid-template-columns:1fr;grid-template-rows:56px 1fr;height:100vh';
       if(tab==='history'){hist.classList.add('visible');renderHistory()}
       else if(tab==='manage'){manage.classList.add('visible');renderManage()}
+      else if(tab==='staff'){document.getElementById('staffPanel').classList.add('visible');loadStaff()}
     }
   }
 }
@@ -1347,7 +1763,7 @@ window.addEventListener('appinstalled',()=>{
 });
 
 // ─── Init ──────────────────────────────────────────────────────────────────
-renderCats();renderProducts();renderCart();
+startApp();
 </script>
 </body>
 </html>
