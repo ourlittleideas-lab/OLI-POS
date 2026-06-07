@@ -409,7 +409,7 @@ tbody tr:hover td{background:var(--bg)}
   <button class="tab-btn active" data-tab="pos" onclick="showTab('pos',this)">Register</button>
   <button class="tab-btn" id="tabHistory" data-tab="history" onclick="showTab('history',this)" style="display:none">Sales History</button>
   <button class="tab-btn" id="tabManage" data-tab="manage" onclick="showTab('manage',this)" style="display:none">Products / SKUs</button>
-  <button class="tab-btn" id="tabStaff" data-tab="staff" onclick="showTab('staff',this)" style="display:none">Staff</button>
+  <button class="tab-btn" id="tabStaff" data-tab="staff" onclick="showTab('staff',this)" style="display:none">Users</button>
   <div class="user-chip" title="Signed in as" style="margin-left:4px">
     <div class="online-dot" id="onlineDot"></div>
     <span id="userNameDisplay">—</span>
@@ -491,22 +491,21 @@ tbody tr:hover td{background:var(--bg)}
 </div>
 </div>
 
-<!-- FULL PANEL: Staff Management -->
+<!-- FULL PANEL: User Management -->
 <div class="full-panel m-panel" id="staffPanel">
   <div class="panel-header">
-    <div class="panel-title">Staff Management</div>
+    <div class="panel-title">Users</div>
     <div class="staff-toolbar">
-      <button class="btn btn-primary" onclick="openStaffModal()">+ Add Staff</button>
+      <button class="btn btn-primary" onclick="openStaffModal()">+ Add User</button>
     </div>
   </div>
   <div class="manage-table-wrap" id="staffTable"></div>
-</div>
 </div>
 
 <!-- ── STAFF MODAL ── -->
 <div class="modal-overlay" id="staffModal">
   <div class="modal">
-    <h2 id="staffModalTitle">Add Staff</h2>
+    <h2 id="staffModalTitle">Add User</h2>
     <div class="form-group"><label>Full Name</label><input type="text" id="sName" placeholder="e.g. Maria Santos"></div>
     <div class="form-group"><label>Email (optional)</label><input type="email" id="sEmail" placeholder="maria@example.com"></div>
     <div class="form-group">
@@ -1070,7 +1069,7 @@ function renderStaff(){
 function openStaffModal(id){
   editingStaffId=id||null;
   const s=id?staffList.find(x=>x.id===id):null;
-  document.getElementById('staffModalTitle').textContent=id?'Edit Staff':'Add Staff';
+  document.getElementById('staffModalTitle').textContent=id?'Edit User':'Add User';
   document.getElementById('sName').value=s?.name||'';
   document.getElementById('sEmail').value=s?.email||'';
   document.getElementById('sRole').value=s?.role||'cashier';
@@ -1094,7 +1093,7 @@ async function saveStaffMember(){
   else{const r=await sb.from('staff').insert(row);err=r.error}
   hideLoading();
   if(err){toast('Error: '+err.message,'error');return}
-  toast(editingStaffId?'Staff updated':'Staff added','success');
+  toast(editingStaffId?'User updated':'User added','success');
   closeStaffModal();await loadStaff();
 }
 
@@ -1102,7 +1101,7 @@ async function deleteStaffMember(id){
   if(!confirm('Remove this staff member?'))return;
   const{error}=await sb.from('staff').delete().eq('id',id);
   if(error){toast('Error: '+error.message,'error');return}
-  toast('Staff removed');await loadStaff();
+  toast('User removed');await loadStaff();
 }
 
 // ─── SKU Generator ─────────────────────────────────────────────────────────
