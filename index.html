@@ -237,7 +237,7 @@ tbody tr:hover td{background:var(--bg)}
 
   /* Mobile panels: fixed full-screen slots below topbar */
   .m-panel{
-    position:fixed;top:52px;left:0;right:0;bottom:0;
+    position:fixed;top:52px;left:0;right:0;bottom:56px;
     overflow-y:auto;-webkit-overflow-scrolling:touch;
     background:var(--bg);
     display:none;
@@ -307,14 +307,66 @@ tbody tr:hover td{background:var(--bg)}
   /* Form rows single column */
   .form-row,.form-row3{grid-template-columns:1fr!important}
 
-  /* Install banner & toast above FAB */
-  #installBanner{bottom:84px}
-  .toast-container{bottom:84px;right:14px}
+  /* FAB and toasts sit above the bottom nav */
+  .cart-fab{bottom:76px}
+  #installBanner{bottom:56px}
+  .toast-container{bottom:76px;right:14px}
+
+  /* Hide topbar tabs on mobile — navigation lives in the bottom nav */
+  .topbar .tab-btn{display:none!important}
+  .topbar-spacer{display:none}
+  .topbar h1{flex:1}
+
+  /* Product grid: 2-column, bigger touch targets */
+  .products{grid-template-columns:1fr 1fr;gap:10px}
+  .product-card{padding:14px 10px;min-height:96px}
+  .product-emoji{font-size:26px}
+  .product-sku{display:none}
+
+  /* History table: hide SKUs (col 3) and User (col 5) */
+  #historyTable table thead th:nth-child(3),
+  #historyTable table tbody td:nth-child(3),
+  #historyTable table thead th:nth-child(5),
+  #historyTable table tbody td:nth-child(5){display:none}
+
+  /* Chart tabs: horizontal scroll */
+  .chart-tabs{overflow-x:auto;flex-wrap:nowrap!important;padding-bottom:2px;scrollbar-width:none}
+  .chart-tabs::-webkit-scrollbar{display:none}
+  .chart-tab{flex-shrink:0}
+
+  /* Bottom nav */
+  .mobile-bottom-nav{
+    display:flex;
+    position:fixed;bottom:0;left:0;right:0;z-index:200;
+    background:var(--shadow-green);border-top:1px solid rgba(255,255,255,.12);
+    padding-bottom:env(safe-area-inset-bottom);height:56px;
+  }
+  .mnav-btn{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:6px 4px;gap:2px;border:none;background:none;cursor:pointer;
+    color:rgba(255,255,255,.5);font-size:10px;font-weight:600;letter-spacing:.3px;transition:color .15s;
+  }
+  .mnav-btn.active{color:#fff}
+  .mnav-icon{font-size:20px;line-height:1}
+  /* Swipe position dots */
+  .swipe-dots-bar{
+    position:fixed;bottom:60px;left:0;right:0;z-index:199;
+    display:flex;justify-content:center;gap:5px;pointer-events:none;padding:4px 0;
+  }
+  .swipe-dot{width:6px;height:6px;border-radius:50%;background:rgba(27,67,50,.25);transition:all .2s;flex-shrink:0}
+  .swipe-dot.active{background:var(--primary);width:16px;border-radius:3px}
+  /* Swipe slide animations */
+  @keyframes swipeInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
+  @keyframes swipeInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+  .m-panel.swipe-right{animation:swipeInRight .25s ease}
+  .m-panel.swipe-left{animation:swipeInLeft .25s ease}
 }
 
-/* Desktop: hide FAB and handle */
+/* Desktop: hide FAB, handle, mobile nav, and swipe dots */
 .cart-fab{display:none}
 .cart-handle{display:none}
+.mobile-bottom-nav{display:none}
+.swipe-dots-bar{display:none}
 
 /* ── Login / Loading ── */
 .full-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:var(--bg)}
@@ -806,6 +858,29 @@ tbody tr:hover td{background:var(--bg)}
   <span class="cart-fab-count" id="fabCount"></span>
 </button>
 
+<!-- Mobile Bottom Nav (3 tabs, role-gated) -->
+<div class="mobile-bottom-nav no-print" id="mobileNav">
+  <button class="mnav-btn active" id="mnavPos" data-tab="pos" onclick="showTab('pos',this)">
+    <span class="mnav-icon">🏪</span>
+    <span>Register</span>
+  </button>
+  <button class="mnav-btn" id="mnavHistory" data-tab="history" onclick="showTab('history',this)">
+    <span class="mnav-icon">📋</span>
+    <span>Sales</span>
+  </button>
+  <button class="mnav-btn" id="mnavReports" data-tab="reports" onclick="showTab('reports',this)" style="display:none">
+    <span class="mnav-icon">📊</span>
+    <span>Reports</span>
+  </button>
+  <button class="mnav-btn" id="mnavRefund" data-tab="refund" onclick="showTab('refund',this)" style="display:none">
+    <span class="mnav-icon">↩️</span>
+    <span>Refunds</span>
+  </button>
+</div>
+
+<!-- Swipe Position Dots -->
+<div id="swipeDots" class="swipe-dots-bar no-print"></div>
+
 <!-- PWA Install Banner -->
 <div id="installBanner" style="display:none;position:fixed;bottom:0;left:0;right:0;background:var(--shadow-green);color:#fff;padding:14px 20px;display:none;align-items:center;gap:12px;z-index:300;box-shadow:0 -2px 12px rgba(0,0,0,.3)">
   <span style="font-size:22px">🛒</span>
@@ -1089,6 +1164,7 @@ async function initApp(){
   await loadSales();
   hideLoading();
   applyRolePermissions();
+  initMobileSwipe();
   initializeReportFilterDefaults();
   renderCats();renderProducts();renderCart();
   updateOnlineDot();
@@ -1109,6 +1185,10 @@ function applyRolePermissions(){
   document.getElementById('tabManage').style.display=r==='admin'?'':'none';
   document.getElementById('tabRefund').style.display=r==='admin'?'':'none';
   document.getElementById('tabStaff').style.display=r==='admin'?'':'none';
+  // Mobile bottom nav: 3rd tab differs by role
+  const g=id=>document.getElementById(id);
+  if(g('mnavReports'))g('mnavReports').style.display=r==='manager'?'':'none';
+  if(g('mnavRefund'))g('mnavRefund').style.display=r==='admin'?'':'none';
 }
 
 // ─── Data: Products ──────────────────────────────────────────────────────────
@@ -2697,9 +2777,10 @@ async function confirmBulkDelete(){
 function showTab(tab,el){
   const isMobile=window.innerWidth<=768;
 
-  // Update active tab button
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  // Update active tab button (desktop) and mobile nav button
+  document.querySelectorAll('.tab-btn,.mnav-btn').forEach(b=>b.classList.remove('active'));
   if(el)el.classList.add('active');
+  closeMobileMore();
 
   // Destroy any live Chart.js instances so they don't keep ResizeObserver hooks alive
   if(reportChartObj){reportChartObj.destroy();reportChartObj=null}
@@ -2719,7 +2800,20 @@ function showTab(tab,el){
       refund:()=>{document.getElementById('refundPanel').classList.add('m-active');requestAnimationFrame(renderRefundPanel)},
       staff:()=>{document.getElementById('staffPanel').classList.add('m-active');requestAnimationFrame(loadStaff)},
     };
-    if(map[tab])map[tab]();
+    if(map[tab]){
+      map[tab]();
+      // Sync swipe index and update dots when any tab is activated
+      const sIdx=mobileSwipeOrder.indexOf(tab);
+      if(sIdx>=0)currentSwipeIndex=sIdx;
+      updateSwipeDots();
+      // Apply directional slide if triggered by a swipe gesture
+      if(swipeAnimDir){
+        const pIds={pos:'posPanel',history:'historyPanel',reports:'reportsPanel',manage:'managePanel',refund:'refundPanel',staff:'staffPanel'};
+        const pEl=document.getElementById(pIds[tab]);
+        if(pEl){pEl.classList.add('swipe-'+swipeAnimDir);setTimeout(()=>pEl.classList.remove('swipe-right','swipe-left'),280);}
+        swipeAnimDir=null;
+      }
+    }
 
   } else {
     const app=document.getElementById('app');
@@ -2794,6 +2888,55 @@ window.addEventListener('appinstalled',()=>{
   document.getElementById('installBanner').style.display='none';
   toast('OLI installed successfully!','success');
 });
+
+// ─── Mobile Swipe Navigation ───────────────────────────────────────────────
+let mobileSwipeOrder=[];
+let currentSwipeIndex=0;
+let swipeAnimDir=null;
+let _swipeTouchX=0,_swipeTouchY=0;
+
+function initMobileSwipe(){
+  const r=currentUser?.role||'cashier';
+  if(r==='admin')mobileSwipeOrder=['pos','history','reports','manage','refund','staff'];
+  else if(r==='manager')mobileSwipeOrder=['pos','history','reports'];
+  else mobileSwipeOrder=['pos','history'];
+  currentSwipeIndex=0;
+  updateSwipeDots();
+}
+
+function updateSwipeDots(){
+  const el=document.getElementById('swipeDots');
+  if(!el||window.innerWidth>768)return;
+  el.innerHTML=mobileSwipeOrder.map((_,i)=>
+    `<span class="swipe-dot${i===currentSwipeIndex?' active':''}"></span>`
+  ).join('');
+}
+
+document.addEventListener('touchstart',e=>{
+  _swipeTouchX=e.touches[0].clientX;
+  _swipeTouchY=e.touches[0].clientY;
+},{passive:true});
+
+document.addEventListener('touchend',e=>{
+  if(window.innerWidth>768||!mobileSwipeOrder.length)return;
+  if(document.querySelector('.modal-overlay.open'))return;
+  if(document.getElementById('cartPanel').classList.contains('cart-open'))return;
+  const dx=e.changedTouches[0].clientX-_swipeTouchX;
+  const dy=e.changedTouches[0].clientY-_swipeTouchY;
+  if(Math.abs(dx)<60||Math.abs(dy)>Math.abs(dx)*0.75)return;
+  if(dx<0){
+    swipeAnimDir='right';
+    currentSwipeIndex=(currentSwipeIndex+1)%mobileSwipeOrder.length;
+  }else{
+    swipeAnimDir='left';
+    currentSwipeIndex=(currentSwipeIndex-1+mobileSwipeOrder.length)%mobileSwipeOrder.length;
+  }
+  const tab=mobileSwipeOrder[currentSwipeIndex];
+  const btn=document.querySelector(`.mnav-btn[data-tab="${tab}"]`);
+  showTab(tab,btn);
+},{passive:true});
+
+function closeMobileMore(){} // no-op (More sheet removed)
 
 // ─── Init ──────────────────────────────────────────────────────────────────
 startApp();
