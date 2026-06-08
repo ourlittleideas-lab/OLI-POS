@@ -329,6 +329,14 @@ tbody tr:hover td{background:var(--bg)}
   #historyTable table thead th:nth-child(5),
   #historyTable table tbody td:nth-child(5){display:none}
 
+  /* Make all table wrappers horizontally scrollable on mobile */
+  .table-wrap{overflow-x:auto}
+  /* Minimum widths so tables have content to scroll to */
+  #historyTable table{min-width:420px}
+  #refundSalesList table{min-width:520px}
+  #staffTable table{min-width:400px}
+  .manage-table{min-width:580px}
+
   /* Chart tabs: horizontal scroll */
   .chart-tabs{overflow-x:auto;flex-wrap:nowrap!important;padding-bottom:2px;scrollbar-width:none}
   .chart-tabs::-webkit-scrollbar{display:none}
@@ -2042,11 +2050,11 @@ function renderReportChart(){
         </div>
         <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px">
           <div style="font-weight:800;color:#7f1d1d;margin-bottom:8px">Dead Stock: Not sold in over 30 days</div>
-          ${dead.length?`<div class="table-wrap scrollable-table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Days Since Last Sale</th><th style="width:110px">Current Qty</th><th style="width:140px">Total Cost Trapped</th><th style="width:150px"></th></tr></thead><tbody>${dead.map(makeDeadRow).join('')}</tbody></table></div>`:'<div class="no-data">No dead stock found</div>'}
+          ${dead.length?`<div class="table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Days Since Last Sale</th><th style="width:110px">Current Qty</th><th style="width:140px">Total Cost Trapped</th><th style="width:150px"></th></tr></thead><tbody>${dead.map(makeDeadRow).join('')}</tbody></table></div>`:'<div class="no-data">No dead stock found</div>'}
         </div>
         <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px">
           <div style="font-weight:800;color:#7f1d1d;margin-bottom:8px">High Returns: Return rate &gt; 10% (min 5 sold)</div>
-          ${highReturns.length?`<div class="table-wrap scrollable-table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Return Rate</th><th style="width:110px">Total Sold</th><th style="width:110px">Return Count</th><th style="width:150px"></th></tr></thead><tbody>${highReturns.map(makeReturnRow).join('')}</tbody></table></div>`:'<div class="no-data">No high-return products found</div>'}
+          ${highReturns.length?`<div class="table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Return Rate</th><th style="width:110px">Total Sold</th><th style="width:110px">Return Count</th><th style="width:150px"></th></tr></thead><tbody>${highReturns.map(makeReturnRow).join('')}</tbody></table></div>`:'<div class="no-data">No high-return products found</div>'}
         </div>
       </div>`;
     return;
