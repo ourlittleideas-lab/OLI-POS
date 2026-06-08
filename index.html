@@ -382,8 +382,8 @@ tbody tr:hover td{background:var(--bg)}
 <div id="loginScreen" class="full-overlay" style="display:none">
   <div class="login-card">
     <div class="login-logo">
-      <div class="logo-icon">🛒</div>
       <h1>OLI</h1>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:2px">Version 1.0</p>
       <p>Sign in to continue</p>
     </div>
 
@@ -1150,12 +1150,11 @@ async function deleteProductFromDb(id){
   return{error};
 }
 
-function saveProducts(){
-  // Update local cache + sync Supabase stock changes after a sale
+function saveProducts(soldItems){
   localStorage.setItem('oli_products_cache',JSON.stringify(products));
-  // Sync stock to Supabase (fire-and-forget)
-  Object.keys(cart).forEach(id=>{
-    const p=products.find(x=>x.id==id);
+  // Sync stock for each sold item (cart is already cleared at call time, so use soldItems)
+  (soldItems||[]).forEach(item=>{
+    const p=products.find(x=>x.sku===item.sku);
     if(p)sb.from('products').update({stock:p.stock}).eq('id',p.id).then(()=>{});
   });
 }
@@ -1171,13 +1170,13 @@ async function loadSales(){
 }
 
 function mapSale(s){
-  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null,soldBy:s.items?.[0]?._soldBy||'Unknown',refundOf:s.items?.[0]?._refundOf};
+  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null,soldBy:s.sold_by||'Unknown',refundOf:s.refund_of||null};
 }
 
 function saveSales(){/* no-op: handled via saveSaleToDb */}
 
 async function saveSaleToDb(saleData){
-  const row={items:saleData.items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived};
+  const row={items:saleData.items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived,sold_by:saleData.soldBy||null,refund_of:saleData.refundOf||null,refund_reason:saleData.refundReason||null};
   if(!isOnline){
     offlineQueue.push({...row,_ts:Date.now()});
     localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
@@ -1353,6 +1352,7 @@ async function confirmRefund(){
     total:-amount,payment:'refund',
     cashReceived:null,
     disc:0,tax:0,
+    soldBy:currentUser?.name||'Unknown',
     refundOf:refundingSale.id,
     refundReason:reason,
     refundType:type,
@@ -1475,7 +1475,8 @@ function getCartTotals(){
   const subtotal=Object.keys(cart).reduce((s,id)=>{
     const p=products.find(x=>x.id==id);return s+(p?p.price*cart[id]:0);
   },0);
-  const discAmt=Math.min(parseFloat(document.getElementById('discountInput').value)||0,subtotal);
+  const rawDisc=parseFloat(document.getElementById('discountInput').value)||0;
+  const discAmt=Math.min(discountMode==='pct'?subtotal*rawDisc/100:rawDisc,subtotal);
   const discLabel=document.getElementById('discountLabel')?.value.trim()||'Discount';
   return{subtotal,discAmt,discLabel,tax:0,taxAmt:0,disc:0,total:subtotal-discAmt};
 }
@@ -1545,7 +1546,7 @@ async function confirmSale(){
   clearCart();
   renderProducts();
   await saveSaleToDb(sale);
-  saveProducts();
+  saveProducts(saleItems);
   showReceipt(sale);
 }
 
@@ -1982,7 +1983,17 @@ function renderReportChart(){
   if(!canvas)return;
   const ctx=canvas;
 
-  if(activeReportChart==='revenue'){
+  if(activeReportChart==='products'){
+    const prodMap={};
+    filtered.forEach(s=>s.items.forEach(i=>{prodMap[i.name]=(prodMap[i.name]||0)+(i.price*i.qty)}));
+    const top=Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    if(!top.length){notice.innerHTML='<div class="no-data">No data yet</div>';return}
+    reportChartObj=new Chart(ctx,{type:'bar',data:{
+      labels:top.map(([n])=>n.length>22?n.slice(0,22)+'…':n),
+      datasets:[{data:top.map(([,v])=>v),backgroundColor:'#2d6a4f',borderRadius:5}]
+    },options:{...opts,plugins:{...opts.plugins,tooltip:{callbacks:{label:c=>`₱${c.raw.toFixed(2)}`}}}}});
+
+  } else if(activeReportChart==='revenue'){
     const dayMap={};
     filtered.forEach(s=>{const d=s.date.slice(0,10);dayMap[d]=(dayMap[d]||0)+s.total});
     const days=Object.keys(dayMap).sort().slice(-14);
