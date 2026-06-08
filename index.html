@@ -331,11 +331,11 @@ tbody tr:hover td{background:var(--bg)}
 
   /* Make all table wrappers horizontally scrollable on mobile */
   .table-wrap{overflow-x:auto}
-  /* Minimum widths so tables have content to scroll to */
-  #historyTable table{min-width:420px}
-  #refundSalesList table{min-width:520px}
-  #staffTable table{min-width:400px}
-  .manage-table{min-width:580px}
+  /* Prevent cells from wrapping — forces table to overflow and triggers horizontal scroll */
+  #historyTable th,#historyTable td,
+  #refundSalesList th,#refundSalesList td,
+  #staffTable th,#staffTable td{white-space:nowrap}
+  .manage-table th,.manage-table td{white-space:nowrap}
 
   /* Chart tabs: horizontal scroll */
   .chart-tabs{overflow-x:auto;flex-wrap:nowrap!important;padding-bottom:2px;scrollbar-width:none}
