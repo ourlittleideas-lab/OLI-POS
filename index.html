@@ -320,6 +320,20 @@ tbody tr:hover td{background:var(--bg)}
   .topbar-spacer{display:none}
   .topbar h1{flex:1}
 
+  /* Mobile topbar layout: logo | user (center) | sign out */
+  .topbar .user-chip{
+    flex:1;
+    justify-content:center;
+    background:transparent;
+    border:none;
+    padding:0;
+    margin:0;
+  }
+  .topbar #userRoleDisplay{display:none}
+  .topbar .online-dot{display:none}
+  .topbar #userNameDisplay{font-size:13px;font-weight:600;color:#fff;letter-spacing:.3px}
+  .logout-btn{font-size:11px;padding:5px 10px;white-space:nowrap;flex-shrink:0}
+
   /* Product grid: 2-column, bigger touch targets */
   .products{grid-template-columns:1fr 1fr;gap:10px}
   .product-card{padding:14px 10px;min-height:96px}
