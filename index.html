@@ -113,6 +113,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ── Full-page panels ── */
 .full-panel{display:none;flex-direction:column;gap:18px;grid-column:1/-1;overflow:hidden}
 .full-panel.visible{display:flex}
+#reportsPanel{overflow-y:auto;overflow-x:hidden}
 .panel-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .panel-title{font-size:20px;font-weight:800}
 
@@ -132,10 +133,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-sm:hover{border-color:var(--primary);color:var(--primary)}
 .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 /* Scrollable table wrapper for long report tables */
-.scrollable-table-wrap{max-height:360px;overflow:auto;padding-right:8px}
+.scrollable-table-wrap{max-height:420px;overflow-y:auto;overflow-x:auto}
 /* Keep table header visible while scrolling inside report tables */
 .scrollable-table-wrap thead th{position:sticky;top:0;background:var(--bg);z-index:3}
-.scrollable-table-wrap table{border-collapse:separate}
+.scrollable-table-wrap table{border-collapse:separate;border-spacing:0}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead th{background:var(--bg);padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;user-select:none}
 thead th.sortable{cursor:pointer}
@@ -601,8 +602,8 @@ tbody tr:hover td{background:var(--bg)}
 </div>
 
 <!-- FULL PANEL: Reports -->
-<div class="full-panel m-panel" id="reportsPanel" style="padding:0;overflow:auto;max-height:100vh">
-  <div style="padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg)">
+<div class="full-panel m-panel" id="reportsPanel" style="padding:0;overflow-y:auto">
+  <div style="padding:14px 20px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10">
     <div class="panel-header" style="margin:0">
       <div class="panel-title">Reports</div>
       <div class="history-controls">
@@ -625,7 +626,7 @@ tbody tr:hover td{background:var(--bg)}
       </div>
     </div>
   </div>
-  <div style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+  <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
     <div class="stats-grid" id="reportsStats"></div>
     <div class="analytics-section" style="border:none;background:transparent">
       <div class="chart-tabs" id="rptChartTabs">
@@ -1885,44 +1886,29 @@ function renderReportChart(){
   const opts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#f3f4f6'}}}};
 
   if(activeReportChart==='profit'){
+    // Rank every SKU by total units sold across all non-refund transactions
     const prodMap={};
-    const missingCosts=new Set();
-    filtered.forEach(s=>s.items.forEach(i=>{
-      const cost=i.cost!=null?i.cost:(products.find(p=>p.sku===i.sku)?.cost);
-      if(cost==null||cost===''){missingCosts.add(i.name||i.sku);return}
-      const qty=i.qty||0;
-      const profitPerUnit=i.price-cost;
+    filtered.filter(s=>s.payment!=='refund').forEach(s=>s.items.forEach(i=>{
       const key=i.name||i.sku;
-      const row=prodMap[key]||{name:key,units:0,totalProfit:0,sku:i.sku};
-      row.units+=qty;
-      row.totalProfit+=profitPerUnit*qty;
-      row.totalCost=(row.totalCost||0)+(cost*qty);
-      row.totalPrice=(row.totalPrice||0)+(i.price*qty);
+      const row=prodMap[key]||{name:key,units:0,totalRevenue:0,sku:i.sku||''};
+      row.units+=(i.qty||0);
+      row.totalRevenue+=(i.price||0)*(i.qty||0);
       prodMap[key]=row;
     }));
-    const rows=Object.values(prodMap).filter(r=>r.units>0).map(r=>({
-      ...r,
-      profitPerUnit:r.totalProfit/r.units
-    }));
-    rows.sort((a,b)=>{
-      if(b.totalProfit!==a.totalProfit)return b.totalProfit-a.totalProfit;
-      return b.profitPerUnit-a.profitPerUnit;
-    });
-    
-    if(missingCosts.size){
-      notice.innerHTML=`<div class="report-warning">Warning: ${missingCosts.size} product${missingCosts.size>1?'s':''} with missing cost price were excluded from this leaderboard.</div>`;
-    }
+    const rows=Object.values(prodMap).filter(r=>r.units>0);
+    rows.sort((a,b)=>b.units-a.units);
+
     if(!rows.length){
+      notice.innerHTML='<div class="no-data">No sales data available for the selected range.</div>';
       content.innerHTML='';
-      if(!missingCosts.size){notice.innerHTML='<div class="no-data">No profit data available for the selected range.</div>'}
       return;
     }
-    
+
     const viewLimit=window.reportProfitLimit||5;
     const displayed=rows.slice(0,viewLimit);
     const barLabels=displayed.map(r=>r.name);
-    const barData=displayed.map(r=>r.totalProfit);
-    
+    const barData=displayed.map(r=>r.units);
+
     content.innerHTML=`
       <div style="display:flex;flex-direction:column;gap:16px">
         <div style="position:relative;height:300px;border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:var(--surface)">
@@ -1932,37 +1918,36 @@ function renderReportChart(){
           <button class="btn ${viewLimit===5?'btn-primary':'btn-ghost'}" onclick="setProfitViewLimit(5)">Top 5</button>
           <button class="btn ${viewLimit===20?'btn-primary':'btn-ghost'}" onclick="setProfitViewLimit(20)">Top 20</button>
         </div>
-        <table class="manage-table" style="cursor:pointer">
+        <table class="manage-table">
           <thead>
             <tr>
+              <th style="width:40px">Rank</th>
               <th>Product Name</th>
-              <th>Units Sold</th>
-              <th>Profit Per Unit</th>
-              <th>Total Profit</th>
+              <th style="text-align:right">Units Sold</th>
+              <th style="text-align:right">Total Revenue</th>
             </tr>
           </thead>
           <tbody>
-            ${displayed.map(r=>`<tr onclick="showProfitTrendModal('${r.name.replace(/'/g,"\\'")}','${r.sku || ''}')" style="cursor:pointer;transition:background .2s">
+            ${displayed.map((r,idx)=>`<tr onclick="showProfitTrendModal('${r.name.replace(/'/g,"\\'")}','${r.sku}')" style="cursor:pointer">
+              <td style="color:var(--muted);font-weight:600">#${idx+1}</td>
               <td>${r.name}</td>
-              <td style="text-align:right">${r.units}</td>
-              <td style="text-align:right">₱${r.profitPerUnit.toFixed(2)}</td>
-              <td style="text-align:right">₱${r.totalProfit.toFixed(2)}</td>
+              <td style="text-align:right;font-weight:700">${r.units}</td>
+              <td style="text-align:right">₱${r.totalRevenue.toFixed(2)}</td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>
     `;
-    
+
     setTimeout(()=>{
       const canvas=document.getElementById('profitBarChart');
-      if(canvas && Chart){
+      if(canvas&&Chart){
         reportChartObj=new Chart(canvas,{
           type:'bar',
-          indexAxis:'y',
           data:{
             labels:barLabels,
             datasets:[{
-              label:'Total Profit',
+              label:'Units Sold',
               data:barData,
               backgroundColor:'#16a34a',
               borderRadius:4
@@ -1972,8 +1957,8 @@ function renderReportChart(){
             responsive:true,
             maintainAspectRatio:false,
             indexAxis:'y',
-            plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'₱'+ctx.raw.toFixed(2)}}},
-            scales:{x:{grid:{color:'#f3f4f6'},ticks:{callback:v=>'₱'+v}}}
+            plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.raw+' units'}}},
+            scales:{x:{grid:{color:'#f3f4f6'},ticks:{stepSize:1}}}
           }
         });
       }
@@ -2064,11 +2049,11 @@ function renderReportChart(){
             <button class="btn btn-primary" onclick="bulkApplySelected(50,true)">Apply 50% to Selected</button>
           </div>
         </div>
-        <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px">
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-weight:800;color:#7f1d1d;margin-bottom:8px">Dead Stock: Not sold in over 30 days</div>
-          ${dead.length?`<div class="table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Days Since Last Sale</th><th style="width:110px">Current Qty</th><th style="width:140px">Total Cost Trapped</th><th style="width:150px"></th></tr></thead><tbody>${dead.map(makeDeadRow).join('')}</tbody></table></div>`:'<div class="no-data">No dead stock found</div>'}
+          ${dead.length?`<div class="scrollable-table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Days Since Last Sale</th><th style="width:110px">Current Qty</th><th style="width:140px">Total Cost Trapped</th><th style="width:150px"></th></tr></thead><tbody>${dead.map(makeDeadRow).join('')}</tbody></table></div>`:'<div class="no-data">No dead stock found</div>'}
         </div>
-        <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px">
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-weight:800;color:#7f1d1d;margin-bottom:8px">High Returns: Return rate &gt; 10% (min 5 sold)</div>
           ${highReturns.length?`<div class="table-wrap"><table class="manage-table"><thead><tr><th></th><th>Product Name</th><th style="width:120px">Return Rate</th><th style="width:110px">Total Sold</th><th style="width:110px">Return Count</th><th style="width:150px"></th></tr></thead><tbody>${highReturns.map(makeReturnRow).join('')}</tbody></table></div>`:'<div class="no-data">No high-return products found</div>'}
         </div>
@@ -2111,7 +2096,7 @@ function renderReportChart(){
     const payMap={};
     filtered.forEach(s=>{payMap[s.payment]=(payMap[s.payment]||0)+1});
     if(!Object.keys(payMap).length){notice.innerHTML='<div class="no-data">No data yet</div>';return}
-    const payColors={cash:'#16a34a',card:'#4a8c64',gcash:'#0369a1',bank:'#7e22ce'};
+    const payColors={cash:'#16a34a',card:'#f97316',gcash:'#0369a1',bank:'#7e22ce'};
     const labels={cash:'Cash',card:'Card',gcash:'GCash',bank:'Bank Transfer'};
     reportChartObj=new Chart(ctx,{type:'doughnut',data:{
       labels:Object.keys(payMap).map(k=>labels[k]||k),
@@ -2534,7 +2519,7 @@ function renderActiveChart(){
     const payMap={};
     filtered.forEach(s=>{payMap[s.payment]=(payMap[s.payment]||0)+1});
     if(!Object.keys(payMap).length){canvas.parentElement.innerHTML='<div class="no-data">No payment data yet</div>';return}
-    const payColors={cash:'#16a34a',card:'#4a8c64',gcash:'#0369a1',bank:'#7e22ce'};
+    const payColors={cash:'#16a34a',card:'#f97316',gcash:'#0369a1',bank:'#7e22ce'};
     charts.active=new Chart(canvas,{type:'doughnut',data:{
       labels:Object.keys(payMap).map(k=>({cash:'Cash',card:'Card',gcash:'GCash',bank:'Bank Transfer'}[k]||k)),
       datasets:[{data:Object.values(payMap),backgroundColor:Object.keys(payMap).map(k=>payColors[k]||'#9ca3af')}]
