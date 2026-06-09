@@ -106,6 +106,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .discount-row input{flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:var(--surface);color:var(--text)}
 .discount-row input::placeholder{color:var(--muted)}
 .discount-row input:focus{border-color:var(--primary)}
+.disc-toggle{padding:7px 10px;border-radius:6px;border:2px solid;background:none;cursor:pointer;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;align-self:stretch}
+.disc-toggle.fixed{border-color:var(--success);color:var(--success)}
+.disc-toggle:not(.fixed){border-color:var(--danger);color:var(--danger)}
 .checkout-btn{padding:11px;background:#22c55e;color:#0f2419;border:none;border-radius:var(--radius);font-size:15px;font-weight:800;cursor:pointer;transition:all .15s;letter-spacing:.3px}
 .checkout-btn:hover{background:#16a34a;color:#fff}
 .checkout-btn:disabled{background:rgba(255,255,255,.15);color:rgba(255,255,255,.3);cursor:not-allowed}
@@ -437,10 +440,6 @@ tbody tr:hover td{background:var(--bg)}
 .chart-tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .chart-display{position:relative;min-height:240px;overflow:auto}
 
-/* ── Discount toggle ── */
-.disc-wrap{display:flex;gap:4px;flex:1}
-.disc-toggle{padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-size:12px;font-weight:700;cursor:pointer;color:var(--muted);white-space:nowrap;transition:all .15s}
-.disc-toggle.fixed{background:var(--primary);color:#fff;border-color:var(--primary)}
 
 /* ── Refund panel ── */
 #refundPanel{padding:20px;flex-direction:column;gap:16px}
@@ -846,7 +845,7 @@ tbody tr:hover td{background:var(--bg)}
         </div>
       </div>
       <!-- Live margin display -->
-      <div id="pricingPreview" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;display:flex;gap:16px;flex-wrap:wrap"></div>
+      <div id="pricingPreview" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;gap:16px;flex-wrap:wrap"></div>
     </div>
 
     <div class="form-group">
@@ -1281,13 +1280,13 @@ async function loadSales(from=null,to=null){
 }
 
 function mapSale(s){
-  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null,soldBy:s.sold_by||'Unknown',refundOf:s.refund_of||null};
+  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),discLabel:s.disc_label||null,taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null,soldBy:s.sold_by||'Unknown',refundOf:s.refund_of||null};
 }
 
 function saveSales(){/* no-op: handled via saveSaleToDb */}
 
 async function saveSaleToDb(saleData){
-  const row={items:saleData.items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived,sold_by:saleData.soldBy||null,refund_of:saleData.refundOf||null,refund_reason:saleData.refundReason||null};
+  const row={items:saleData.items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,disc_label:saleData.discLabel||null,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived,sold_by:saleData.soldBy||null,refund_of:saleData.refundOf||null,refund_reason:saleData.refundReason||null};
   if(!isOnline){
     offlineQueue.push({...row,_ts:Date.now()});
     localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
@@ -2408,7 +2407,63 @@ function renderTrafficDashboard(filtered,content,notice){
 }
 
 function showTrafficDetail(dayOfWeek,hour){
-  alert('Traffic detail for '+['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dayOfWeek]+' at '+hour+':00 (modal coming soon)');
+  const weekday=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const slotSales=getReportFilteredSales().filter(s=>{
+    const d=new Date(s.date);
+    return d.getDay()===dayOfWeek&&d.getHours()===hour;
+  });
+  const txCount=slotSales.length;
+  const totalRevenue=slotSales.reduce((sum,s)=>sum+s.total,0);
+
+  const prodMap={};
+  slotSales.forEach(s=>s.items.forEach(i=>{
+    const key=i.name||i.sku;
+    if(!prodMap[key])prodMap[key]={name:key,units:0};
+    prodMap[key].units+=i.qty||0;
+  }));
+  const topProds=Object.values(prodMap).sort((a,b)=>b.units-a.units).slice(0,5);
+
+  const userMap={};
+  slotSales.forEach(s=>{
+    const u=s.soldBy||'Unknown';
+    if(!userMap[u])userMap[u]={name:u,count:0,revenue:0};
+    userMap[u].count++;userMap[u].revenue+=s.total;
+  });
+  const users=Object.values(userMap).sort((a,b)=>b.count-a.count);
+
+  const overlay=document.createElement('div');
+  overlay.className='traffic-modal-overlay';
+  overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()});
+
+  const box=document.createElement('div');
+  box.style.cssText='background:var(--surface);padding:24px;border-radius:14px;width:90%;max-width:480px;max-height:85vh;overflow-y:auto';
+  box.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <div style="font-weight:800;font-size:17px">${weekday[dayOfWeek]} · ${hour}:00–${hour+1}:00</div>
+        <div style="font-size:12px;color:var(--muted)">Traffic detail</div>
+      </div>
+      <button style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)" onclick="this.closest('.traffic-modal-overlay').remove()">×</button>
+    </div>
+    ${txCount===0?`<div class="no-data">No transactions recorded for this time slot.</div>`:`
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+      <div class="stat-card"><div class="stat-val">${txCount}</div><div class="stat-label">Transactions</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--primary)">₱${totalRevenue.toFixed(2)}</div><div class="stat-label">Total Revenue</div></div>
+    </div>
+    ${topProds.length?`
+    <div style="margin-bottom:16px">
+      <div style="font-weight:700;font-size:12px;color:var(--muted);letter-spacing:.5px;margin-bottom:8px">TOP PRODUCTS</div>
+      ${topProds.map((p,i)=>`<div style="display:flex;justify-content:space-between;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:13px;margin-bottom:6px"><span><span style="color:var(--muted);margin-right:8px">#${i+1}</span>${p.name}</span><span style="font-weight:700">${p.units} unit${p.units!==1?'s':''}</span></div>`).join('')}
+    </div>`:''}
+    ${users.length?`
+    <div>
+      <div style="font-weight:700;font-size:12px;color:var(--muted);letter-spacing:.5px;margin-bottom:8px">USERS ON DUTY</div>
+      ${users.map(u=>`<div style="display:flex;justify-content:space-between;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:13px;margin-bottom:6px"><span style="font-weight:600">${u.name}</span><span style="color:var(--muted)">${u.count} sale${u.count!==1?'s':''} · <strong style="color:var(--primary)">₱${u.revenue.toFixed(2)}</strong></span></div>`).join('')}
+    </div>`:''}
+    `}`;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
 }
 
 // ─── Profit Tab Functions ───────────────────────────────────────────────────
@@ -2498,98 +2553,6 @@ function showProfitTrendModal(productName,sku){
       });
     }
   },100);
-}
-
-// ─── Analytics Toggle & Tabs (legacy, kept for compatibility) ───────────────
-let activeChartType='products';
-let analyticsOpen=false;
-let analyticsData=[];
-function toggleAnalytics(){}
-function switchChart(type,el){}
-
-function renderActiveChart(){
-  if(charts.active){charts.active.destroy();charts.active=null}
-  const canvas=document.getElementById('activeChart');
-  if(!canvas)return;
-  const filtered=analyticsData;
-  const opts={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#f3f4f6'}}}};
-
-  if(activeChartType==='products'){
-    const prodMap={};
-    filtered.forEach(s=>s.items.forEach(i=>{prodMap[i.name]=(prodMap[i.name]||0)+(i.price*i.qty)}));
-    const top=Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
-    if(!top.length){canvas.parentElement.innerHTML='<div class="no-data">No product data yet</div>';return}
-    charts.active=new Chart(canvas,{type:'bar',data:{
-      labels:top.map(([n])=>n.length>20?n.slice(0,20)+'…':n),
-      datasets:[{data:top.map(([,v])=>v),backgroundColor:'#2d6a4f',borderRadius:5}]
-    },options:{...opts,plugins:{...opts.plugins,tooltip:{callbacks:{label:ctx=>`₱${ctx.raw.toFixed(2)}`}}}}});
-
-  } else if(activeChartType==='revenue'){
-    const dayMap={};
-    filtered.forEach(s=>{const d=s.date.slice(0,10);dayMap[d]=(dayMap[d]||0)+s.total});
-    const days=Object.keys(dayMap).sort().slice(-14);
-    if(!days.length){canvas.parentElement.innerHTML='<div class="no-data">No revenue data yet</div>';return}
-    charts.active=new Chart(canvas,{type:'line',data:{
-      labels:days.map(d=>new Date(d+'T12:00:00').toLocaleDateString([],{month:'short',day:'numeric'})),
-      datasets:[{data:days.map(d=>dayMap[d]),borderColor:'#2d6a4f',backgroundColor:'rgba(45,106,79,.12)',fill:true,tension:.4,pointRadius:5,pointHoverRadius:7}]
-    },options:{...opts,plugins:{...opts.plugins,tooltip:{callbacks:{label:ctx=>`₱${ctx.raw.toFixed(2)}`}}}}});
-
-  } else if(activeChartType==='payment'){
-    const payMap={};
-    filtered.forEach(s=>{payMap[s.payment]=(payMap[s.payment]||0)+1});
-    if(!Object.keys(payMap).length){canvas.parentElement.innerHTML='<div class="no-data">No payment data yet</div>';return}
-    const payColors={cash:'#16a34a',card:'#f97316',gcash:'#0369a1',bank:'#7e22ce'};
-    charts.active=new Chart(canvas,{type:'doughnut',data:{
-      labels:Object.keys(payMap).map(k=>({cash:'Cash',card:'Card',gcash:'GCash',bank:'Bank Transfer'}[k]||k)),
-      datasets:[{data:Object.values(payMap),backgroundColor:Object.keys(payMap).map(k=>payColors[k]||'#9ca3af')}]
-    },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:13},padding:16}}}}});
-
-  } else if(activeChartType==='distribution'){
-    const buckets={'₱0–500':0,'₱500–1k':0,'₱1k–3k':0,'₱3k–5k':0,'₱5k+':0};
-    filtered.forEach(s=>{
-      if(s.total<500)buckets['₱0–500']++;
-      else if(s.total<1000)buckets['₱500–1k']++;
-      else if(s.total<3000)buckets['₱1k–3k']++;
-      else if(s.total<5000)buckets['₱3k–5k']++;
-      else buckets['₱5k+']++;
-    });
-    charts.active=new Chart(canvas,{type:'bar',data:{
-      labels:Object.keys(buckets),
-      datasets:[{data:Object.values(buckets),backgroundColor:'#818cf8',borderRadius:5}]
-    },options:{...opts,plugins:{...opts.plugins,tooltip:{callbacks:{label:ctx=>`${ctx.raw} orders`}}}}});
-
-  } else if(activeChartType==='users'){
-    const userMap={};
-    filtered.forEach(s=>{
-      const u=s.soldBy||'Unknown';
-      if(!userMap[u])userMap[u]={revenue:0,count:0};
-      userMap[u].revenue+=s.total;
-      userMap[u].count+=1;
-    });
-    const users=Object.entries(userMap).sort((a,b)=>b[1].revenue-a[1].revenue);
-    if(!users.length||users.every(([u])=>u==='Unknown')){
-      canvas.parentElement.innerHTML='<div class="no-data" style="padding:40px">User tracking starts from new sales made after the latest update.</div>';return;
-    }
-    charts.active=new Chart(canvas,{type:'bar',data:{
-      labels:users.map(([u])=>u),
-      datasets:[
-        {label:'Revenue (₱)',data:users.map(([,v])=>v.revenue),backgroundColor:'#2d6a4f',borderRadius:5,yAxisID:'y'},
-        {label:'Transactions',data:users.map(([,v])=>v.count),backgroundColor:'#818cf8',borderRadius:5,yAxisID:'y1'}
-      ]
-    },options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:true,position:'top',labels:{font:{size:12}}}},
-      scales:{
-        x:{grid:{display:false}},
-        y:{grid:{color:'#f3f4f6'},position:'left',ticks:{callback:v=>`₱${v}`}},
-        y1:{grid:{display:false},position:'right',ticks:{stepSize:1}}
-      }
-    }});
-  }
-}
-
-function renderCharts(filtered){
-  analyticsData=filtered;
-  if(analyticsOpen)renderActiveChart();
 }
 
 function showSaleDetail(id){
@@ -2808,7 +2771,6 @@ function showTab(tab,el){
   // Update active tab button (desktop) and mobile nav button
   document.querySelectorAll('.tab-btn,.mnav-btn').forEach(b=>b.classList.remove('active'));
   if(el)el.classList.add('active');
-  closeMobileMore();
 
   // Destroy any live Chart.js instances so they don't keep ResizeObserver hooks alive
   if(reportChartObj){reportChartObj.destroy();reportChartObj=null}
@@ -2963,8 +2925,6 @@ document.addEventListener('touchend',e=>{
   const btn=document.querySelector(`.mnav-btn[data-tab="${tab}"]`);
   showTab(tab,btn);
 },{passive:true});
-
-function closeMobileMore(){} // no-op (More sheet removed)
 
 // ─── Init ──────────────────────────────────────────────────────────────────
 startApp();
