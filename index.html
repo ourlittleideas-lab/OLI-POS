@@ -682,6 +682,7 @@ tbody tr:hover td{background:var(--bg)}
     <div class="panel-title">Users</div>
     <div class="staff-toolbar">
       <button class="btn btn-primary" onclick="openStaffModal()">+ Add User</button>
+      <button class="btn" onclick="downloadBackup()" style="border-color:var(--success);color:var(--success)">⬇ Download Backup</button>
     </div>
   </div>
   <div class="manage-table-wrap" id="staffTable"></div>
@@ -1373,6 +1374,70 @@ async function deleteStaffMember(id){
   const{error}=await sb.from('staff').delete().eq('id',id);
   if(error){toast('Error: '+error.message,'error');return}
   toast('User removed');await loadStaff();
+}
+
+// ─── Backup ────────────────────────────────────────────────────────────────
+async function downloadBackup(){
+  if(currentUser?.role!=='admin'){toast('Admin only','error');return}
+  showLoading('Fetching backup data...');
+  const date=new Date().toISOString().slice(0,10);
+
+  function dl(filename,content,type){
+    const blob=new Blob([content],{type});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function toCsv(rows){
+    return rows.map(r=>r.map(v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  }
+
+  try{
+    const[salesRes,productsRes,staffRes]=await Promise.all([
+      sb.from('sales').select('*').order('created_at',{ascending:false}),
+      sb.from('products').select('*').order('category'),
+      sb.from('staff').select('id,name,role,email').order('name'),
+    ]);
+    if(salesRes.error)throw salesRes.error;
+    if(productsRes.error)throw productsRes.error;
+    if(staffRes.error)throw staffRes.error;
+
+    const allSales=salesRes.data||[];
+    const allProducts=productsRes.data||[];
+    const allStaff=staffRes.data||[];
+
+    // JSON
+    dl(`sales_${date}.json`,JSON.stringify(allSales,null,2),'application/json');
+    dl(`products_${date}.json`,JSON.stringify(allProducts,null,2),'application/json');
+    dl(`staff_${date}.json`,JSON.stringify(allStaff,null,2),'application/json');
+
+    // Sales CSV
+    const salesRows=[['ID','Date','Items','Subtotal','Disc Amount','Disc Label','Tax Amount','Total','Payment','Cash Received','Sold By','Refund Of','Refund Reason']];
+    allSales.forEach(s=>{
+      const items=Array.isArray(s.items)?s.items.map(i=>`${i.name||i.sku}×${i.qty}`).join('; '):'';
+      salesRows.push([s.id,s.created_at,items,s.subtotal,s.disc_amt||0,s.disc_label||'',s.tax_amt||0,s.total,s.payment,s.cash_received||'',s.sold_by||'',s.refund_of||'',s.refund_reason||'']);
+    });
+    dl(`sales_${date}.csv`,toCsv(salesRows),'text/csv');
+
+    // Products CSV
+    const prodRows=[['ID','SKU','Name','Emoji','Category','Price','Cost','Stock','Original Price','Clearance %']];
+    allProducts.forEach(p=>prodRows.push([p.id,p.sku,p.name,p.emoji,p.category,p.price,p.cost||0,p.stock||0,p.original_price||'',p.clearance_percent||'']));
+    dl(`products_${date}.csv`,toCsv(prodRows),'text/csv');
+
+    // Staff CSV
+    const staffRows=[['ID','Name','Role','Email']];
+    allStaff.forEach(s=>staffRows.push([s.id,s.name,s.role,s.email||'']));
+    dl(`staff_${date}.csv`,toCsv(staffRows),'text/csv');
+
+    hideLoading();
+    toast('Backup complete — 6 files downloaded','success');
+  }catch(e){
+    hideLoading();
+    toast('Backup failed: '+e.message,'error');
+  }
 }
 
 // ─── Discount Toggle ───────────────────────────────────────────────────────
