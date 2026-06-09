@@ -566,9 +566,9 @@ tbody tr:hover td{background:var(--bg)}
           <option value="custom">Custom Range</option>
         </select>
         <div id="customRange" style="display:none;gap:6px;align-items:center">
-          <input type="date" id="dateFrom" onchange="renderHistory()">
+          <input type="date" id="dateFrom" onchange="applyHistoryCustomRange()">
           <span style="color:var(--muted);font-size:12px">to</span>
-          <input type="date" id="dateTo" onchange="renderHistory()">
+          <input type="date" id="dateTo" onchange="applyHistoryCustomRange()">
         </div>
         <select id="payFilter" onchange="renderHistory()">
           <option value="">All Payment</option>
@@ -619,9 +619,9 @@ tbody tr:hover td{background:var(--bg)}
           <option value="custom">Custom Range</option>
         </select>
         <div id="rptCustomRange" style="display:none;gap:6px;align-items:center">
-          <input type="date" id="rptDateFrom" onchange="renderReports()">
+          <input type="date" id="rptDateFrom" onchange="applyReportCustomRange()">
           <span style="color:var(--muted);font-size:12px">to</span>
-          <input type="date" id="rptDateTo" onchange="renderReports()">
+          <input type="date" id="rptDateTo" onchange="applyReportCustomRange()">
         </div>
       </div>
     </div>
@@ -1187,7 +1187,8 @@ async function initApp(){
   showLoading('Loading products...');
   await loadProducts();
   showLoading('Loading sales...');
-  await loadSales();
+  const{from:initFrom,to:initTo}=getPeriodDates('last30');
+  await loadSales(initFrom,initTo);
   hideLoading();
   applyRolePermissions();
   initMobileSwipe();
@@ -1266,9 +1267,12 @@ function saveProducts(soldItems){
 }
 
 // ─── Data: Sales ─────────────────────────────────────────────────────────────
-async function loadSales(){
+async function loadSales(from=null,to=null){
   try{
-    const{data,error}=await sb.from('sales').select('*').order('created_at',{ascending:false}).limit(500);
+    let q=sb.from('sales').select('*').order('created_at',{ascending:false});
+    if(from)q=q.gte('created_at',from+'T00:00:00');
+    if(to)q=q.lte('created_at',to+'T23:59:59');
+    const{data,error}=await q;
     if(error)throw error;
     sales=data.map(mapSale);
     localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
@@ -1720,16 +1724,23 @@ function getPeriodDates(period){
   return{from,to};
 }
 
-function applyPeriodFilter(){
+async function applyPeriodFilter(){
   const period=document.getElementById('periodFilter').value;
   const custom=document.getElementById('customRange');
-  if(period==='custom'){custom.style.display='flex'}
-  else{
-    custom.style.display='none';
-    const{from,to}=getPeriodDates(period);
-    document.getElementById('dateFrom').value=from;
-    document.getElementById('dateTo').value=to;
-  }
+  if(period==='custom'){custom.style.display='flex';return}
+  custom.style.display='none';
+  const{from,to}=getPeriodDates(period);
+  document.getElementById('dateFrom').value=from;
+  document.getElementById('dateTo').value=to;
+  await loadSales(from||null,to||null);
+  renderHistory();
+}
+
+async function applyHistoryCustomRange(){
+  const from=document.getElementById('dateFrom').value;
+  const to=document.getElementById('dateTo').value;
+  if(!from||!to)return;
+  await loadSales(from,to);
   renderHistory();
 }
 
@@ -1836,16 +1847,23 @@ function getReportFilteredSales(){
   return s;
 }
 
-function applyReportPeriodFilter(){
+async function applyReportPeriodFilter(){
   const period=document.getElementById('rptPeriodFilter').value;
   const custom=document.getElementById('rptCustomRange');
-  if(period==='custom'){custom.style.display='flex'}
-  else{
-    custom.style.display='none';
-    const{from,to}=getPeriodDates(period);
-    document.getElementById('rptDateFrom').value=from;
-    document.getElementById('rptDateTo').value=to;
-  }
+  if(period==='custom'){custom.style.display='flex';return}
+  custom.style.display='none';
+  const{from,to}=getPeriodDates(period);
+  document.getElementById('rptDateFrom').value=from;
+  document.getElementById('rptDateTo').value=to;
+  await loadSales(from||null,to||null);
+  renderReports();
+}
+
+async function applyReportCustomRange(){
+  const from=document.getElementById('rptDateFrom').value;
+  const to=document.getElementById('rptDateTo').value;
+  if(!from||!to)return;
+  await loadSales(from,to);
   renderReports();
 }
 
