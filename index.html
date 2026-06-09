@@ -541,7 +541,8 @@ tbody tr:hover td{background:var(--bg)}
   <div class="cart-footer">
     <div style="display:flex;gap:6px">
       <input type="text" id="discountLabel" placeholder="Discount label (optional)" oninput="renderTotals()" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;min-width:0">
-      <input type="number" id="discountInput" placeholder="₱ Amount" min="0" step="1" oninput="renderTotals()" style="width:100px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:700;outline:none">
+      <button id="discToggle" class="disc-toggle fixed" onclick="toggleDiscountMode()" title="Toggle between peso and percent discount">₱</button>
+      <input type="number" id="discountInput" placeholder="Discount ₱" min="0" step="1" oninput="renderTotals()" style="width:90px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:700;outline:none">
     </div>
     <div class="totals" id="totals"></div>
     <button class="checkout-btn" id="checkoutBtn" onclick="openCheckout()" disabled>Checkout</button>
@@ -1376,7 +1377,7 @@ async function deleteStaffMember(id){
 }
 
 // ─── Discount Toggle ───────────────────────────────────────────────────────
-let discountMode='pct'; // 'pct' or 'fixed'
+let discountMode='fixed'; // 'pct' or 'fixed'
 function toggleDiscountMode(){
   discountMode=discountMode==='pct'?'fixed':'pct';
   const btn=document.getElementById('discToggle');
