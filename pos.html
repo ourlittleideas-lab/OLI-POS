@@ -1167,7 +1167,11 @@ async function loadSales(){
     if(error)throw error;
     sales=data.map(mapSale);
     localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
-  }catch(e){sales=JSON.parse(localStorage.getItem('oli_sales_cache')||'[]')}
+  }catch(e){
+    console.error('loadSales error:',e);
+    toast('Could not load transactions: '+(e?.message||e),'warning');
+    sales=JSON.parse(localStorage.getItem('oli_sales_cache')||'[]');
+  }
 }
 
 function mapSale(s){
