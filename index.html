@@ -1909,11 +1909,12 @@ function renderHistory(){
   if(from)refundsInRange=refundsInRange.filter(x=>x.date>=from);
   if(to)refundsInRange=refundsInRange.filter(x=>x.date<=to+'T23:59:59');
   const totalRefunds=refundsInRange.reduce((s,x)=>s+Math.abs(x.total),0);
+  const refundedItemQty=refundsInRange.reduce((s,x)=>s+x.items.reduce((a,i)=>a+(i.qty||0),0),0);
   const grossRev=filtered.reduce((s,x)=>s+x.total,0);
   const totalRev=grossRev-totalRefunds;
   const totalTx=filtered.length;
-  const avgOrder=totalTx?grossRev/totalTx:0;
-  const totalItems=filtered.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
+  const avgOrder=totalTx?totalRev/totalTx:0;
+  const totalItems=filtered.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0)-refundedItemQty;
   document.getElementById('historyStats').innerHTML=`
     <div class="stat-card"><div class="stat-val">₱${totalRev.toFixed(2)}</div><div class="stat-label">Net Revenue</div></div>
     <div class="stat-card"><div class="stat-val">${totalTx}</div><div class="stat-label">Transactions</div></div>
