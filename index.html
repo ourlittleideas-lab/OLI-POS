@@ -1332,9 +1332,16 @@ async function saveSaleToDb(saleData){
 async function syncOfflineQueue(){
   if(!offlineQueue.length||!isOnline)return;
   const toSync=[...offlineQueue];
-  offlineQueue=[];localStorage.setItem('oli_offline_queue','[]');
-  for(const{_ts,...row}of toSync){await sb.from('sales').insert(row)}
-  if(toSync.length){toast(`Synced ${toSync.length} offline sale(s)!`,'success');await loadSales()}
+  const failed=[];
+  for(const{_ts,...row}of toSync){
+    const{error}=await sb.from('sales').insert(row);
+    if(error)failed.push({...row,_ts});
+  }
+  offlineQueue=failed;
+  localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
+  const synced=toSync.length-failed.length;
+  if(synced>0){toast(`Synced ${synced} offline sale(s)!`,'success');await loadSales()}
+  if(failed.length>0){toast(`${failed.length} sale(s) failed to sync`,'error')}
 }
 
 // ─── Data: Staff ─────────────────────────────────────────────────────────────
@@ -1743,7 +1750,6 @@ async function confirmSale(){
   });
   const sale={items:saleItems,subtotal,discAmt,discLabel,taxAmt:0,total,disc:0,tax:0,payment:selectedPayment,cashReceived:selectedPayment==='cash'?parseFloat(document.getElementById('cashReceived').value)||0:null,soldBy:currentUser?.name||'Unknown'};
   closeCheckout();
-  const prevCart={...cart};
   clearCart();
   renderProducts();
   await saveSaleToDb(sale);
