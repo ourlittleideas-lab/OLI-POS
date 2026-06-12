@@ -1565,7 +1565,6 @@ async function confirmRefund(){
   const type=document.getElementById('refundType').value;
   if(!amount||amount<=0){toast('Enter a valid refund amount','error');return}
   if(amount>refundingSale.total){toast('Refund cannot exceed original total','error');return}
-  if(!confirm(`Issue refund of ₱${amount.toFixed(2)}? This cannot be undone.`))return;
 
   const refundSale={
     items:refundingSale.items,
@@ -1576,7 +1575,6 @@ async function confirmRefund(){
     soldBy:currentUser?.name||'Unknown',
     refundOf:refundingSale.id,
     refundReason:reason,
-    refundType:type,
     refundBy:currentUser?.name
   };
 
@@ -1588,12 +1586,18 @@ async function confirmRefund(){
     });
   }
 
-  showLoading('Processing refund...');
-  await saveSaleToDb(refundSale);
-  hideLoading();
   closeRefundModal();
-  toast(`Refund of ₱${amount.toFixed(2)} issued`,'success');
-  renderRefundPanel();
+  showLoading('Processing refund...');
+  try{
+    await saveSaleToDb(refundSale);
+    hideLoading();
+    toast(`Refund of ₱${amount.toFixed(2)} issued`,'success');
+    renderRefundPanel();
+  }catch(e){
+    hideLoading();
+    console.error('Refund error:',e);
+    toast('Refund failed: '+(e.message||'unknown error'),'error');
+  }
 }
 
 // ─── SKU Generator ─────────────────────────────────────────────────────────
