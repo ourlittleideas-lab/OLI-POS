@@ -1578,8 +1578,8 @@ async function confirmRefund(){
     refundBy:currentUser?.name
   };
 
-  // Restore stock for item returns
-  if(type==='item'){
+  // Restore stock for full refunds and item returns (not partial/overpayment)
+  if(type==='full'||type==='item'){
     refundingSale.items.forEach(item=>{
       const p=products.find(x=>x.sku===item.sku);
       if(p){p.stock+=item.qty;sb.from('products').update({stock:p.stock}).eq('id',p.id).then(()=>{})}
