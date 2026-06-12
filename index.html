@@ -1306,7 +1306,7 @@ async function loadSales(from=null,to=null){
 }
 
 function mapSale(s){
-  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),discLabel:s.disc_label||null,taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null,soldBy:s.sold_by||'Unknown',refundOf:s.refund_of||null};
+  return{id:s.id,date:s.created_at,items:s.items,subtotal:+s.subtotal,discAmt:+(s.disc_amt||0),discLabel:s.disc_label||null,taxAmt:+(s.tax_amt||0),total:+s.total,disc:0,tax:0,payment:s.payment,cashReceived:s.cash_received?+s.cash_received:null,soldBy:s.sold_by||'Unknown',refundOf:s.refund_of!=null?+s.refund_of:null};
 }
 
 function saveSales(){/* no-op: handled via saveSaleToDb */}
