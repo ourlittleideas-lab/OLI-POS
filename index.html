@@ -1178,12 +1178,19 @@ async function createAdmin(){
 function doLogout(){
   if(!confirm('Sign out of OLI?'))return;
   localStorage.removeItem('oli_session');
-  location.reload();
+  currentUser=null;
+  cart={};
+  // Hide app, show login immediately (no page reload)
+  document.getElementById('app').style.display='none';
+  document.getElementById('userNameDisplay').textContent='—';
+  document.getElementById('userRoleDisplay').textContent='';
+  showLoginForm();
 }
 
 // ─── App Init ────────────────────────────────────────────────────────────────
 async function initApp(){
   document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='';
   document.getElementById('userNameDisplay').textContent=currentUser.name;
   document.getElementById('userRoleDisplay').textContent=currentUser.role;
   showLoading('Loading products...');
