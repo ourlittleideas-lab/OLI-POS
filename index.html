@@ -1915,12 +1915,18 @@ function clearHistoryFilters(){
 function renderHistory(){
   populateUserFilter();
   const filtered=getFilteredSales();
-  // Net revenue = sales total minus refunds within the same date range
+  // Net revenue = sales total minus refunds within the same date/user scope
   const from=document.getElementById('dateFrom').value;
   const to=document.getElementById('dateTo').value;
+  const userFilter=document.getElementById('userFilter')?.value||'';
   let refundsInRange=sales.filter(x=>x.payment==='refund');
   if(from)refundsInRange=refundsInRange.filter(x=>x.date>=from);
   if(to)refundsInRange=refundsInRange.filter(x=>x.date<=to+'T23:59:59');
+  // If filtering by user, only count refunds for that user's original sales
+  if(userFilter){
+    const userSaleIds=new Set(sales.filter(x=>x.payment!=='refund'&&x.soldBy===userFilter).map(x=>x.id));
+    refundsInRange=refundsInRange.filter(x=>userSaleIds.has(x.refundOf));
+  }
   const totalRefunds=refundsInRange.reduce((s,x)=>s+Math.abs(x.total),0);
   const refundedItemQty=refundsInRange.reduce((s,x)=>s+x.items.reduce((a,i)=>a+(i.qty||0),0),0);
   const grossRev=filtered.reduce((s,x)=>s+x.total,0);
