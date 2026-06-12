@@ -2008,17 +2008,26 @@ function switchReportChart(type,el){
 
 function renderReports(){
   const filtered=getReportFilteredSales();
-  const totalRev=filtered.reduce((s,x)=>s+x.total,0);
+  const from=document.getElementById('rptDateFrom').value;
+  const to=document.getElementById('rptDateTo').value;
+  // Subtract refunds in the same date range
+  let refundsInRange=sales.filter(x=>x.payment==='refund');
+  if(from)refundsInRange=refundsInRange.filter(x=>x.date>=from);
+  if(to)refundsInRange=refundsInRange.filter(x=>x.date<=to+'T23:59:59');
+  const totalRefunds=refundsInRange.reduce((s,x)=>s+Math.abs(x.total),0);
+  const refundedItemQty=refundsInRange.reduce((s,x)=>s+x.items.reduce((a,i)=>a+(i.qty||0),0),0);
+  const grossRev=filtered.reduce((s,x)=>s+x.total,0);
+  const totalRev=grossRev-totalRefunds;
   const totalCost=filtered.reduce((s,x)=>s+getSaleCost(x),0);
   const totalProfit=totalRev-totalCost;
   const totalTx=filtered.length;
   const avgOrder=totalTx?totalRev/totalTx:0;
-  const totalItems=filtered.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
+  const totalItems=filtered.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0)-refundedItemQty;
 
   document.getElementById('reportsStats').innerHTML=`
-    <div class="stat-card"><div class="stat-val" style="color:var(--primary)">₱${totalRev.toFixed(2)}</div><div class="stat-label">Total Revenue</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--primary)">₱${totalRev.toFixed(2)}</div><div class="stat-label">Net Revenue</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--muted)">₱${totalCost.toFixed(2)}</div><div class="stat-label">Total Net Cost</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:${totalProfit>=0?'var(--success)':'var(--danger)'}">₱${totalProfit.toFixed(2)}</div><div class="stat-label">Total Profit</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:${totalProfit>=0?'var(--success)':'var(--danger)'}">₱${totalProfit.toFixed(2)}</div><div class="stat-label">Net Profit</div></div>
     <div class="stat-card"><div class="stat-val">${totalTx}</div><div class="stat-label">Transactions</div></div>
     <div class="stat-card"><div class="stat-val">₱${avgOrder.toFixed(2)}</div><div class="stat-label">Avg Order</div></div>
     <div class="stat-card"><div class="stat-val">${totalItems}</div><div class="stat-label">Items Sold</div></div>`;
