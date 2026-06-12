@@ -1285,7 +1285,7 @@ function saveProducts(soldItems){
 // ─── Data: Sales ─────────────────────────────────────────────────────────────
 async function loadSales(from=null,to=null){
   try{
-    let q=sb.from('sales').select('*').order('created_at',{ascending:false});
+    let q=sb.from('sales').select('*').order('created_at',{ascending:false}).limit(1000);
     if(from)q=q.gte('created_at',from+'T00:00:00');
     if(to)q=q.lte('created_at',to+'T23:59:59');
     const{data,error}=await q;
@@ -1294,7 +1294,6 @@ async function loadSales(from=null,to=null){
     localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
   }catch(e){
     console.error('loadSales error:',e);
-    toast('Could not load transactions: '+(e?.message||e),'warning');
     sales=JSON.parse(localStorage.getItem('oli_sales_cache')||'[]');
   }
 }
