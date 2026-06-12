@@ -1990,6 +1990,15 @@ function getReportFilteredSales(){
   return s;
 }
 
+function getReportRefunds(){
+  let r=sales.filter(x=>x.payment==='refund');
+  const from=document.getElementById('rptDateFrom').value;
+  const to=document.getElementById('rptDateTo').value;
+  if(from)r=r.filter(x=>x.date>=from);
+  if(to)r=r.filter(x=>x.date<=to+'T23:59:59');
+  return r;
+}
+
 async function applyReportPeriodFilter(){
   const period=document.getElementById('rptPeriodFilter').value;
   const custom=document.getElementById('rptCustomRange');
@@ -2255,6 +2264,7 @@ function renderReportChart(){
   } else if(activeReportChart==='revenue'){
     const dayMap={};
     filtered.forEach(s=>{const d=s.date.slice(0,10);dayMap[d]=(dayMap[d]||0)+s.total});
+    getReportRefunds().forEach(r=>{const d=r.date.slice(0,10);dayMap[d]=(dayMap[d]||0)-Math.abs(r.total)});
     const days=Object.keys(dayMap).sort().slice(-14);
     if(!days.length){notice.innerHTML='<div class="no-data">No data yet</div>';return}
     reportChartObj=new Chart(ctx,{type:'line',data:{
@@ -2293,6 +2303,12 @@ function renderReportChart(){
       const u=s.soldBy||'Unknown';
       if(!userMap[u])userMap[u]={revenue:0,count:0};
       userMap[u].revenue+=s.total;userMap[u].count+=1;
+    });
+    // Subtract refunds from original seller's revenue
+    getReportRefunds().forEach(r=>{
+      const orig=sales.find(s=>s.id===r.refundOf);
+      const u=(orig?.soldBy)||'Unknown';
+      if(userMap[u])userMap[u].revenue-=Math.abs(r.total);
     });
     const users=Object.entries(userMap).sort((a,b)=>b[1].revenue-a[1].revenue);
     if(!users.length||users.every(([u])=>u==='Unknown')){
@@ -2480,12 +2496,16 @@ function renderTrafficDashboard(filtered,content,notice){
     lastWeekMap[d.getHours()]+=s.total;
   });
   
-  // Daily totals
+  // Daily totals (net of refunds)
   const dailyTotals={};
   for(let d=0;d<7;d++) dailyTotals[d]=0;
   filtered.forEach(s=>{
     const d=new Date(s.date);
     dailyTotals[d.getDay()]+=s.total;
+  });
+  getReportRefunds().forEach(r=>{
+    const d=new Date(r.date);
+    dailyTotals[d.getDay()]-=Math.abs(r.total);
   });
   
   // Find min/max for heatmap
@@ -2565,7 +2585,9 @@ function showTrafficDetail(dayOfWeek,hour){
     return d.getDay()===dayOfWeek&&d.getHours()===hour;
   });
   const txCount=slotSales.length;
-  const totalRevenue=slotSales.reduce((sum,s)=>sum+s.total,0);
+  const slotSaleIds=new Set(slotSales.map(s=>s.id));
+  const slotRefunds=sales.filter(r=>r.payment==='refund'&&r.refundOf!=null&&slotSaleIds.has(r.refundOf));
+  const totalRevenue=slotSales.reduce((sum,s)=>sum+s.total,0)-slotRefunds.reduce((sum,r)=>sum+Math.abs(r.total),0);
 
   const prodMap={};
   slotSales.forEach(s=>s.items.forEach(i=>{
