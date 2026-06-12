@@ -1499,18 +1499,25 @@ function toggleDiscountMode(){
 // ─── Refund Module ──────────────────────────────────────────────────────────
 let refundingSale=null;
 
+// Sale lookup map for refund panel — avoids JSON.stringify in onclick
+const _refundSaleMap={};
+
 function renderRefundPanel(){
   const dateFilter=document.getElementById('refundDateFilter').value;
   // Show regular sales only (not refunds themselves)
   let salesList=[...sales].filter(s=>s.payment!=='refund');
-  if(dateFilter)salesList=salesList.filter(s=>s.date.slice(0,10)===dateFilter);
+  if(dateFilter)salesList=salesList.filter(s=>s.date&&s.date.slice(0,10)===dateFilter);
   const tbl=document.getElementById('refundSalesList');
   if(!salesList.length){tbl.innerHTML=`<div class="no-data">No sales found</div>`;return}
+  // Pre-compute refunded IDs once (O(n) instead of O(n²))
+  const refundedIds=new Set(sales.filter(r=>r.payment==='refund'&&r.refundOf!=null).map(r=>r.refundOf));
+  // Store sales in lookup map so onclick only needs the ID
+  salesList.forEach(s=>{_refundSaleMap[s.id]=s;});
   tbl.innerHTML=`<table>
     <thead><tr><th>Date / Time</th><th>Items</th><th>Payment</th><th>Total</th><th>Status</th><th></th></tr></thead>
     <tbody>${salesList.map(s=>{
       const d=new Date(s.date);
-      const refunded=sales.some(r=>r.payment==='refund'&&r.refundOf===s.id);
+      const refunded=refundedIds.has(s.id);
       const itemCount=s.items.reduce((a,i)=>a+i.qty,0);
       return `<tr class="${refunded?'refund-row':''}">
         <td>${d.toLocaleDateString()} <span style="color:var(--muted)">${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span></td>
@@ -1518,7 +1525,7 @@ function renderRefundPanel(){
         <td><span class="badge badge-${s.payment}">${s.payment}</span></td>
         <td style="font-weight:700">₱${s.total.toFixed(2)}</td>
         <td>${refunded?'<span class="refund-badge">Refunded</span>':'<span style="color:var(--success);font-size:12px">✓ Valid</span>'}</td>
-        <td>${refunded?'':`<button onclick="openRefundModal(${JSON.stringify(s).replace(/"/g,'&quot;')})" style="padding:5px 12px;border:1px solid var(--danger);border-radius:6px;font-size:12px;color:var(--danger);background:none;cursor:pointer">Refund</button>`}</td>
+        <td>${refunded?'':`<button onclick="openRefundModal(_refundSaleMap[${s.id}])" style="padding:5px 12px;border:1px solid var(--danger);border-radius:6px;font-size:12px;color:var(--danger);background:none;cursor:pointer">Refund</button>`}</td>
       </tr>`;
     }).join('')}</tbody>
   </table>`;
