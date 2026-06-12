@@ -344,11 +344,9 @@ tbody tr:hover td{background:var(--bg)}
   .product-emoji{font-size:26px}
   .product-sku{display:none}
 
-  /* History table: hide SKUs (col 3) and User (col 5) */
+  /* History table: hide SKUs (col 3) on mobile only */
   #historyTable table thead th:nth-child(3),
-  #historyTable table tbody td:nth-child(3),
-  #historyTable table thead th:nth-child(5),
-  #historyTable table tbody td:nth-child(5){display:none}
+  #historyTable table tbody td:nth-child(3){display:none}
 
   /* Make all table wrappers horizontally scrollable on mobile */
   .table-wrap{overflow-x:auto}
@@ -576,6 +574,9 @@ tbody tr:hover td{background:var(--bg)}
           <option value="card">Card</option>
           <option value="gcash">GCash</option>
           <option value="bank">Bank Transfer</option>
+        </select>
+        <select id="userFilter" onchange="renderHistory()">
+          <option value="">All Users</option>
         </select>
         <button class="btn-sm" onclick="refreshHistory()" style="border-color:var(--primary);color:var(--primary)">↺ Refresh</button>
         <button class="btn-sm" onclick="exportCSV()" style="border-color:var(--success);color:var(--success)">⬇ Export CSV</button>
@@ -1871,10 +1872,20 @@ function getFilteredSales(){
   const from=document.getElementById('dateFrom').value;
   const to=document.getElementById('dateTo').value;
   const pay=document.getElementById('payFilter').value;
+  const user=document.getElementById('userFilter')?.value||'';
   if(from)s=s.filter(x=>x.date>=from);
   if(to)s=s.filter(x=>x.date<=to+'T23:59:59');
   if(pay)s=s.filter(x=>x.payment===pay);
+  if(user)s=s.filter(x=>x.soldBy===user);
   return s;
+}
+
+function populateUserFilter(){
+  const sel=document.getElementById('userFilter');
+  if(!sel)return;
+  const current=sel.value;
+  const users=[...new Set(sales.filter(x=>x.payment!=='refund'&&x.soldBy&&x.soldBy!=='Unknown').map(x=>x.soldBy))].sort();
+  sel.innerHTML=`<option value="">All Users</option>${users.map(u=>`<option value="${u}"${u===current?' selected':''}>${u}</option>`).join('')}`;
 }
 
 function getSortedSales(arr){
@@ -1896,11 +1907,13 @@ function clearHistoryFilters(){
   document.getElementById('dateFrom').value='';
   document.getElementById('dateTo').value='';
   document.getElementById('payFilter').value='';
+  if(document.getElementById('userFilter'))document.getElementById('userFilter').value='';
   document.getElementById('customRange').style.display='none';
   renderHistory();
 }
 
 function renderHistory(){
+  populateUserFilter();
   const filtered=getFilteredSales();
   // Net revenue = sales total minus refunds within the same date range
   const from=document.getElementById('dateFrom').value;
