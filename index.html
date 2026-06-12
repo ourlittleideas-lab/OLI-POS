@@ -674,7 +674,7 @@ tbody tr:hover td{background:var(--bg)}
   <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;font-size:13px;color:#7f1d1d">
     🔒 <strong>Admin only.</strong> Issue refunds for overpayment or item returns. All refunds are logged and cannot be undone.
   </div>
-  <div class="table-wrap" id="refundSalesList"></div>
+  <div class="scrollable-table-wrap" id="refundSalesList" style="max-height:calc(100vh - 260px)"></div>
 </div>
 
 <!-- FULL PANEL: User Management -->
@@ -1902,13 +1902,20 @@ function clearHistoryFilters(){
 
 function renderHistory(){
   const filtered=getFilteredSales();
-  // Stats (exclude refunds)
-  const totalRev=filtered.reduce((s,x)=>s+x.total,0);
+  // Net revenue = sales total minus refunds within the same date range
+  const from=document.getElementById('dateFrom').value;
+  const to=document.getElementById('dateTo').value;
+  let refundsInRange=sales.filter(x=>x.payment==='refund');
+  if(from)refundsInRange=refundsInRange.filter(x=>x.date>=from);
+  if(to)refundsInRange=refundsInRange.filter(x=>x.date<=to+'T23:59:59');
+  const totalRefunds=refundsInRange.reduce((s,x)=>s+Math.abs(x.total),0);
+  const grossRev=filtered.reduce((s,x)=>s+x.total,0);
+  const totalRev=grossRev-totalRefunds;
   const totalTx=filtered.length;
-  const avgOrder=totalTx?totalRev/totalTx:0;
+  const avgOrder=totalTx?grossRev/totalTx:0;
   const totalItems=filtered.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
   document.getElementById('historyStats').innerHTML=`
-    <div class="stat-card"><div class="stat-val">₱${totalRev.toFixed(2)}</div><div class="stat-label">Revenue</div></div>
+    <div class="stat-card"><div class="stat-val">₱${totalRev.toFixed(2)}</div><div class="stat-label">Net Revenue</div></div>
     <div class="stat-card"><div class="stat-val">${totalTx}</div><div class="stat-label">Transactions</div></div>
     <div class="stat-card"><div class="stat-val">₱${avgOrder.toFixed(2)}</div><div class="stat-label">Avg Order</div></div>
     <div class="stat-card"><div class="stat-val">${totalItems}</div><div class="stat-label">Items Sold</div></div>`;
