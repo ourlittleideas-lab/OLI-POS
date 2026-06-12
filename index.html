@@ -577,6 +577,7 @@ tbody tr:hover td{background:var(--bg)}
           <option value="gcash">GCash</option>
           <option value="bank">Bank Transfer</option>
         </select>
+        <button class="btn-sm" onclick="refreshHistory()" style="border-color:var(--primary);color:var(--primary)">↺ Refresh</button>
         <button class="btn-sm" onclick="exportCSV()" style="border-color:var(--success);color:var(--success)">⬇ Export CSV</button>
       </div>
     </div>
@@ -1808,6 +1809,13 @@ function getPeriodDates(period){
   return{from,to};
 }
 
+async function refreshHistory(){
+  const from=document.getElementById('dateFrom').value||null;
+  const to=document.getElementById('dateTo').value||null;
+  await loadSales(from,to);
+  renderHistory();
+}
+
 async function applyPeriodFilter(){
   const period=document.getElementById('periodFilter').value;
   const custom=document.getElementById('customRange');
@@ -2868,7 +2876,7 @@ function showTab(tab,el){
     // Step 2: show only the target — defer heavy renders so browser paints the empty panel first
     const map={
       pos:()=>document.getElementById('posPanel').classList.add('m-active'),
-      history:()=>{document.getElementById('historyPanel').classList.add('m-active');requestAnimationFrame(renderHistory)},
+      history:()=>{document.getElementById('historyPanel').classList.add('m-active');requestAnimationFrame(refreshHistory)},
       reports:()=>{document.getElementById('reportsPanel').classList.add('m-active');requestAnimationFrame(renderReports)},
       manage:()=>{document.getElementById('managePanel').classList.add('m-active');requestAnimationFrame(renderManage)},
       refund:()=>{document.getElementById('refundPanel').classList.add('m-active');requestAnimationFrame(renderRefundPanel)},
@@ -2907,7 +2915,7 @@ function showTab(tab,el){
     } else {
       app.style.cssText='display:grid;grid-template-columns:1fr;grid-template-rows:56px 1fr;height:100vh';
       const map={
-        history:()=>{document.getElementById('historyPanel').classList.add('visible');requestAnimationFrame(renderHistory)},
+        history:()=>{document.getElementById('historyPanel').classList.add('visible');requestAnimationFrame(refreshHistory)},
         reports:()=>{document.getElementById('reportsPanel').classList.add('visible');requestAnimationFrame(renderReports)},
         manage:()=>{document.getElementById('managePanel').classList.add('visible');requestAnimationFrame(renderManage)},
         refund:()=>{document.getElementById('refundPanel').classList.add('visible');requestAnimationFrame(renderRefundPanel)},

@@ -507,6 +507,7 @@ tbody tr:hover td{background:var(--bg)}
           <option value="gcash">GCash</option>
           <option value="bank">Bank Transfer</option>
         </select>
+        <button class="btn-sm" onclick="refreshHistory()" style="border-color:var(--primary);color:var(--primary)">↺ Refresh</button>
         <button class="btn-sm" onclick="exportCSV()" style="border-color:var(--success);color:var(--success)">⬇ Export CSV</button>
       </div>
     </div>
@@ -1176,7 +1177,9 @@ function mapSale(s){
 function saveSales(){/* no-op: handled via saveSaleToDb */}
 
 async function saveSaleToDb(saleData){
-  const row={items:saleData.items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived};
+  // Embed soldBy into first item so it survives the DB round-trip via mapSale
+  const items=saleData.items.map((item,i)=>i===0?{...item,_soldBy:saleData.soldBy}:item);
+  const row={items,subtotal:saleData.subtotal,disc_amt:saleData.discAmt,tax_amt:saleData.taxAmt,total:saleData.total,payment:saleData.payment,cash_received:saleData.cashReceived};
   if(!isOnline){
     offlineQueue.push({...row,_ts:Date.now()});
     localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
@@ -1186,14 +1189,16 @@ async function saveSaleToDb(saleData){
   }
   try{
     const{data,error}=await sb.from('sales').insert(row).select().single();
-    if(!error&&data){const m=mapSale(data);saleData.id=m.id;saleData.date=m.date}
+    if(error)throw error; // treat Supabase DB errors same as network failures
+    const m=mapSale(data);saleData.id=m.id;saleData.date=m.date;
     sales.unshift(saleData);localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
   }catch(e){
+    console.error('saveSaleToDb error:',e);
     offlineQueue.push({...row,_ts:Date.now()});
     localStorage.setItem('oli_offline_queue',JSON.stringify(offlineQueue));
     saleData.id='offline_'+Date.now();saleData.date=new Date().toISOString();
     sales.unshift(saleData);localStorage.setItem('oli_sales_cache',JSON.stringify(sales));
-    toast('Saved offline — will sync when online','warning');
+    toast('Sale saved offline — will sync when reconnected','warning');
   }
 }
 
@@ -1607,6 +1612,11 @@ function getPeriodDates(period){
     from=d.toISOString().slice(0,10);to=last.toISOString().slice(0,10);
   }
   return{from,to};
+}
+
+async function refreshHistory(){
+  await loadSales();
+  renderHistory();
 }
 
 function applyPeriodFilter(){
@@ -2177,7 +2187,7 @@ function showTab(tab,el){
     // Step 2: show only the target — defer heavy renders so browser paints the empty panel first
     const map={
       pos:()=>document.getElementById('posPanel').classList.add('m-active'),
-      history:()=>{document.getElementById('historyPanel').classList.add('m-active');requestAnimationFrame(renderHistory)},
+      history:()=>{document.getElementById('historyPanel').classList.add('m-active');requestAnimationFrame(refreshHistory)},
       reports:()=>{document.getElementById('reportsPanel').classList.add('m-active');requestAnimationFrame(renderReports)},
       manage:()=>{document.getElementById('managePanel').classList.add('m-active');requestAnimationFrame(renderManage)},
       refund:()=>{document.getElementById('refundPanel').classList.add('m-active');requestAnimationFrame(renderRefundPanel)},
@@ -2203,7 +2213,7 @@ function showTab(tab,el){
     } else {
       app.style.cssText='display:grid;grid-template-columns:1fr;grid-template-rows:56px 1fr;height:100vh';
       const map={
-        history:()=>{document.getElementById('historyPanel').classList.add('visible');requestAnimationFrame(renderHistory)},
+        history:()=>{document.getElementById('historyPanel').classList.add('visible');requestAnimationFrame(refreshHistory)},
         reports:()=>{document.getElementById('reportsPanel').classList.add('visible');requestAnimationFrame(renderReports)},
         manage:()=>{document.getElementById('managePanel').classList.add('visible');requestAnimationFrame(renderManage)},
         refund:()=>{document.getElementById('refundPanel').classList.add('visible');requestAnimationFrame(renderRefundPanel)},
