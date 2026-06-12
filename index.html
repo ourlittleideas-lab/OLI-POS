@@ -1927,6 +1927,8 @@ function renderHistoryTable(){
   const filtered=getFilteredSales();
   const sorted=getSortedSales(filtered);
   const admin=isAdmin();
+  // Pre-compute refunded sale IDs for visual indicator
+  const refundedSaleIds=new Set(sales.filter(r=>r.payment==='refund'&&r.refundOf!=null).map(r=>r.refundOf));
   document.getElementById('historyTable').innerHTML=sorted.length===0
     ?`<div class="no-data">No transactions found</div>`
     :`<table>
@@ -1939,8 +1941,9 @@ function renderHistoryTable(){
           const d=new Date(s.date);
           const itemCount=s.items.reduce((a,i)=>a+i.qty,0);
           const badgeCls={cash:'badge-cash',card:'badge-card',gcash:'badge-gcash',bank:'badge-bank'}[s.payment]||'';
-          return `<tr class="clickable-row" onclick="showSaleDetail('${s.id}')">
-            <td>${d.toLocaleDateString()} <span style="color:var(--muted)">${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span></td>
+          const isRefunded=refundedSaleIds.has(s.id);
+          return `<tr class="clickable-row${isRefunded?' refund-row':''}" onclick="showSaleDetail('${s.id}')" style="${isRefunded?'text-decoration:line-through;color:var(--muted);':''}">
+            <td>${d.toLocaleDateString()} <span style="color:var(--muted)">${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>${isRefunded?'<span class="refund-badge" style="margin-left:6px;text-decoration:none;display:inline-block">Refunded</span>':''}</td>
             <td>${s.items.map(i=>i.emoji).join('')} <span style="color:var(--muted)">${itemCount} item${itemCount!==1?'s':''}</span></td>
             <td style="font-family:monospace;font-size:11px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.items.map(i=>i.sku).join(', ')}</td>
             <td><span class="badge ${badgeCls}">${s.payment}</span></td>
