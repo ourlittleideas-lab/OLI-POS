@@ -849,7 +849,7 @@ tbody tr:hover td{background:var(--bg)}
 </div>
 
 <!-- OLI Home summary page (desktop only, rendered by renderHome()) -->
-<div class="full-panel" id="cashDrawerPanel" style="overflow-y:auto;gap:0"></div>
+<div class="full-panel m-panel" id="cashDrawerPanel" style="overflow-y:auto;gap:0"></div>
 <div class="full-panel m-panel" id="homePanel" style="overflow-y:auto;gap:0"></div>
 
 </div>
@@ -1067,6 +1067,10 @@ tbody tr:hover td{background:var(--bg)}
   <button class="mnav-btn" id="mnavRefund" data-tab="refund" onclick="showTab('refund',this)" style="display:none">
     <span class="mnav-icon">↩️</span>
     <span>Refunds</span>
+  </button>
+  <button class="mnav-btn" id="mnavCashDrawer" data-tab="cashDrawer" onclick="showTab('cashDrawer',this)" style="display:none">
+    <span class="mnav-icon">💵</span>
+    <span>Drawer</span>
   </button>
 </div>
 
@@ -1429,6 +1433,7 @@ function applyRolePermissions(){
   // Mobile bottom nav: 3rd tab differs by role
   if(g('mnavReports'))g('mnavReports').style.display=r==='manager'?'':'none';
   if(g('mnavRefund'))g('mnavRefund').style.display=r==='admin'?'':'none';
+  if(g('mnavCashDrawer'))g('mnavCashDrawer').style.display='';
   // Sidebar avatar + page title user
   const av=g('sidebarAvatar');
   if(av){av.textContent=(currentUser?.name?.[0]||'?').toUpperCase();av.title=currentUser?.name||''}
@@ -3807,6 +3812,7 @@ function showTab(tab,el){
       manage:()=>{document.getElementById('managePanel').classList.add('m-active');requestAnimationFrame(renderManage)},
       refund:()=>{document.getElementById('refundPanel').classList.add('m-active');requestAnimationFrame(renderRefundPanel)},
       staff:()=>{document.getElementById('staffPanel').classList.add('m-active');requestAnimationFrame(loadStaff)},
+      cashDrawer:()=>{document.getElementById('cashDrawerPanel').classList.add('m-active');requestAnimationFrame(renderCashDrawer)},
     };
     if(map[tab]){
       map[tab]();
@@ -3816,7 +3822,7 @@ function showTab(tab,el){
       updateSwipeDots();
       // Apply directional slide if triggered by a swipe gesture
       if(swipeAnimDir){
-        const pIds={pos:'posPanel',history:'historyPanel',reports:'reportsPanel',manage:'managePanel',refund:'refundPanel',staff:'staffPanel'};
+        const pIds={pos:'posPanel',history:'historyPanel',reports:'reportsPanel',manage:'managePanel',refund:'refundPanel',staff:'staffPanel',cashDrawer:'cashDrawerPanel'};
         const pEl=document.getElementById(pIds[tab]);
         if(pEl){pEl.classList.add('swipe-'+swipeAnimDir);setTimeout(()=>pEl.classList.remove('swipe-right','swipe-left'),280);}
         swipeAnimDir=null;
@@ -3909,9 +3915,9 @@ let _swipeTouchX=0,_swipeTouchY=0;
 
 function initMobileSwipe(){
   const r=currentUser?.role||'cashier';
-  if(r==='admin')mobileSwipeOrder=['pos','history','reports','manage','refund','staff'];
-  else if(r==='manager')mobileSwipeOrder=['pos','history','reports'];
-  else mobileSwipeOrder=['pos','history'];
+  if(r==='admin')mobileSwipeOrder=['pos','history','reports','manage','refund','cashDrawer','staff'];
+  else if(r==='manager')mobileSwipeOrder=['pos','history','cashDrawer','reports'];
+  else mobileSwipeOrder=['pos','history','cashDrawer'];
   currentSwipeIndex=0;
   updateSwipeDots();
 }
