@@ -1374,6 +1374,18 @@ function doLogout(){
   // Reset PIN field so it's empty for next login
   const pinEl=document.getElementById('loginPin');
   if(pinEl)pinEl.value='';
+  // Reset all mobile panels back to default (posPanel active) so next login starts clean
+  document.querySelectorAll('.m-panel').forEach(p=>p.classList.remove('m-active'));
+  const pp=document.getElementById('posPanel');if(pp)pp.classList.add('m-active');
+  // Reset all desktop panels
+  document.querySelectorAll('.full-panel').forEach(p=>p.classList.remove('visible'));
+  // Reset swipe index
+  currentSwipeIndex=0;
+  // Reset mobile nav active state
+  document.querySelectorAll('.mnav-btn').forEach(b=>b.classList.remove('active'));
+  const posNav=document.querySelector('.mnav-btn[data-tab="pos"]');if(posNav)posNav.classList.add('active');
+  // Reset sidebar button active state
+  document.querySelectorAll('.sidebar-btn').forEach(b=>b.classList.remove('active'));
   // Hide app + sidebar, show login immediately (no page reload)
   document.getElementById('app').style.display='none';
   document.getElementById('desktopSidebar').style.display='none';
@@ -1410,9 +1422,11 @@ async function initApp(){
   renderCats();renderProducts();renderCart();
   updateOnlineDot();
   syncOfflineQueue();
-  // Desktop: start on OLI Home summary page
+  // After login: desktop → OLI Home, mobile → Register (POS)
   if(window.innerWidth>768){
     showTab('home',document.querySelector('.sidebar-btn[data-tab="home"]'));
+  }else{
+    showTab('pos',document.querySelector('.mnav-btn[data-tab="pos"]'));
   }
   // Realtime: auto-receive sales made by other users
   sb.channel('oli-sales-realtime')
