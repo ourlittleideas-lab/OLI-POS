@@ -2701,7 +2701,7 @@ async function _dtrRenderClock(el){
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:15px;color:var(--text)">${s.name}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.role}${shift?' · '+shift.name+' '+shift.start_time+'–'+shift.end_time:' · No shift'}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.role}${shift?' · '+shift.name+' '+shift.start_time.slice(0,5)+'–'+shift.end_time.slice(0,5):' · No shift'}</div>
             ${log?`<div style="font-size:11px;color:var(--muted);margin-top:2px">IN: ${timeInStr} · OUT: ${timeOutStr}${statusBadge}</div>`:''}
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0">
@@ -2794,7 +2794,7 @@ async function _dtrPinSubmit(){
 }
 
 function _dtrShowSuccessIn(name,time,shift){
-  const shiftInfo=shift?shift.name+' · '+shift.start_time+'–'+shift.end_time:'';
+  const shiftInfo=shift?shift.name+' · '+shift.start_time.slice(0,5)+'–'+shift.end_time.slice(0,5):'';
   _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:32px 24px;max-width:320px;width:100%;text-align:center">
     <div style="font-size:44px;margin-bottom:12px">🌞</div>
     <div style="font-size:16px;font-weight:700;color:#2d6a4f;margin-bottom:4px">Welcome to OLI HOME,</div>
@@ -4556,6 +4556,10 @@ function showTab(tab,el){
     // Step 1: hide EVERY panel immediately
     document.querySelectorAll('.m-panel').forEach(p=>p.classList.remove('m-active'));
     document.getElementById('cartPanel').classList.remove('cart-open');
+
+    // Show/hide cart FAB — only on POS tab
+    const fab=document.getElementById('cartFab');
+    if(fab)fab.style.display=tab==='pos'?'':'none';
 
     // Step 2: show only the target — defer heavy renders so browser paints the empty panel first
     const map={
