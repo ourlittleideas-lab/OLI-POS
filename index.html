@@ -624,6 +624,9 @@ tbody tr:hover td{background:var(--bg)}
     <button class="sidebar-btn" id="tabRefund" data-tab="refund" onclick="showTab('refund',this)" title="Refunds" style="display:none">
       <i class="ti ti-receipt-refund"></i><span class="sb-label">Refunds</span>
     </button>
+    <button class="sidebar-btn" id="tabCashDrawer" data-tab="cashDrawer" onclick="showTab('cashDrawer',this)" title="Cash Drawer" style="display:none">
+      <i class="ti ti-cash"></i><span class="sb-label">Cash Drawer</span>
+    </button>
     <button class="sidebar-btn" id="tabStaff" data-tab="staff" onclick="showTab('staff',this)" title="Users" style="display:none">
       <i class="ti ti-users"></i><span class="sb-label">Users</span>
     </button>
@@ -846,6 +849,7 @@ tbody tr:hover td{background:var(--bg)}
 </div>
 
 <!-- OLI Home summary page (desktop only, rendered by renderHome()) -->
+<div class="full-panel" id="cashDrawerPanel" style="overflow-y:auto;gap:0"></div>
 <div class="full-panel m-panel" id="homePanel" style="overflow-y:auto;gap:0"></div>
 
 </div>
@@ -1420,6 +1424,7 @@ function applyRolePermissions(){
   if(g('tabReports'))g('tabReports').style.display=(r==='admin'||r==='manager')?'':'none';
   if(g('tabManage'))g('tabManage').style.display=r==='admin'?'':'none';
   if(g('tabRefund'))g('tabRefund').style.display=r==='admin'?'':'none';
+  if(g('tabCashDrawer'))g('tabCashDrawer').style.display='';
   if(g('tabStaff'))g('tabStaff').style.display=r==='admin'?'':'none';
   // Mobile bottom nav: 3rd tab differs by role
   if(g('mnavReports'))g('mnavReports').style.display=r==='manager'?'':'none';
@@ -2180,6 +2185,209 @@ function _buildHomeChart(){
   if(g('hStatBazaar'))g('hStatBazaar').textContent=showBaz?'₱'+bazTotal.toLocaleString():'—';
   if(g('hStatStore'))g('hStatStore').textContent=showSto?'₱'+stoTotal.toLocaleString():'—';
   if(g('hStatTopPay'))g('hStatTopPay').textContent=topPay?(_H_PAY_LABEL[topPay[0]]||topPay[0]):'—';
+}
+
+// ─── Cash Drawer ─────────────────────────────────────────────────────────────
+let _cdExpFilter='all'; // 'all'|'cash'|'non-cash'
+
+function _cdDateKey(){return new Date().toISOString().slice(0,10)}
+
+async function _cdLoadDay(){
+  const d=_cdDateKey();
+  const [dayRes,entRes]=await Promise.all([
+    sb.from('cash_drawer_days').select('*').eq('date',d).maybeSingle(),
+    sb.from('cash_drawer_entries').select('*').eq('date',d).order('created_at',{ascending:true})
+  ]);
+  return{day:dayRes.data||{date:d,starting_cash:0},entries:entRes.data||[]};
+}
+
+async function _cdSaveStartingCash(val){
+  const d=_cdDateKey();
+  await sb.from('cash_drawer_days').upsert({date:d,starting_cash:val,updated_by:currentUser?.name||''},
+    {onConflict:'date'});
+  renderCashDrawer();
+}
+
+async function _cdAddCash(amount,note){
+  const d=_cdDateKey();
+  await sb.from('cash_drawer_entries').insert({
+    date:d,entry_type:'cash_added',amount:parseFloat(amount),note:note||null,
+    created_by:currentUser?.name||''
+  });
+  renderCashDrawer();
+}
+
+async function _cdAddExpense(name,amount,expType){
+  const d=_cdDateKey();
+  await sb.from('cash_drawer_entries').insert({
+    date:d,entry_type:'expense',expense_type:expType,amount:parseFloat(amount),note:name,
+    created_by:currentUser?.name||''
+  });
+  renderCashDrawer();
+}
+
+async function _cdDeleteEntry(id){
+  if(!confirm('Delete this entry?'))return;
+  await sb.from('cash_drawer_entries').delete().eq('id',id);
+  renderCashDrawer();
+}
+
+function _cdSetExpFilter(f,btn){
+  document.querySelectorAll('.cd-exp-btn').forEach(b=>b.removeAttribute('data-active'));
+  if(btn)btn.setAttribute('data-active','1');
+  _cdExpFilter=f;
+  const panel=document.getElementById('cashDrawerPanel');
+  if(!panel)return;
+  const rows=panel.querySelectorAll('.cd-exp-row');
+  rows.forEach(r=>{
+    const t=r.getAttribute('data-type');
+    r.style.display=(f==='all'||t===f)?'':'none';
+  });
+}
+
+async function renderCashDrawer(){
+  const panel=document.getElementById('cashDrawerPanel');
+  if(!panel)return;
+  panel.innerHTML=`<div style="padding:20px 28px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px"><div style="color:var(--muted);font-size:13px">Loading…</div></div>`;
+
+  const {day,entries}=await _cdLoadDay();
+  const todayStr=_cdDateKey();
+  const todaySales=sales.filter(s=>s.payment!=='refund'&&s.date&&s.date.slice(0,10)===todayStr);
+  const cashSales=todaySales.filter(s=>s.payment.toLowerCase()==='cash').reduce((a,s)=>a+s.total,0);
+  const gcashSales=todaySales.filter(s=>s.payment.toLowerCase()==='gcash').reduce((a,s)=>a+s.total,0);
+  const cardSales=todaySales.filter(s=>s.payment.toLowerCase()==='card').reduce((a,s)=>a+s.total,0);
+  const bankSales=todaySales.filter(s=>s.payment.toLowerCase()==='bank transfer').reduce((a,s)=>a+s.total,0);
+  const cashAdded=entries.filter(e=>e.entry_type==='cash_added').reduce((a,e)=>a+Number(e.amount),0);
+  const cashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='cash').reduce((a,e)=>a+Number(e.amount),0);
+  const nonCashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='non-cash').reduce((a,e)=>a+Number(e.amount),0);
+  const startCash=Number(day.starting_cash||0);
+  const cashInDrawer=startCash+cashAdded+cashSales-cashExp;
+  const isAdmin=currentUser?.role==='admin';
+  const dateStr=new Date().toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const cashEntries=entries.filter(e=>e.entry_type==='cash_added');
+  const expEntries=entries.filter(e=>e.entry_type==='expense');
+  const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  panel.innerHTML=`<div style="padding:20px 28px 28px;box-sizing:border-box;overflow-y:auto;flex:1;min-height:0">
+  <div style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:500">${dateStr}</div>
+
+  <!-- Cash In Drawer hero -->
+  <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:28px;margin-bottom:12px;text-align:center">
+    <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Cash In Drawer</div>
+    <div style="font-size:48px;font-weight:900;color:#fff;letter-spacing:-.5px">${fmt(cashInDrawer)}</div>
+  </div>
+
+  <!-- Non-cash payment breakdown -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
+    <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">GCash Sales</div>
+      <div style="font-size:22px;font-weight:800;color:#fff">${fmt(gcashSales)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Card Sales</div>
+      <div style="font-size:22px;font-weight:800;color:#fff">${fmt(cardSales)}</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Bank Transfer</div>
+      <div style="font-size:22px;font-weight:800;color:#fff">${fmt(bankSales)}</div>
+    </div>
+  </div>
+
+  <!-- 5 stat mini-cards -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Starting Cash</div>
+      ${isAdmin
+        ? `<input id="cdStartInput" type="number" min="0" step="0.01" value="${startCash.toFixed(2)}"
+             style="width:100%;border:none;background:transparent;font-size:16px;font-weight:700;color:var(--primary);outline:none;padding:0"
+             onchange="if(this.value&&!isNaN(this.value))_cdSaveStartingCash(this.value)">`
+        : `<div style="font-size:16px;font-weight:700;color:var(--primary)">${fmt(startCash)}</div>`}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Cash Added</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text)">${fmt(cashAdded)}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Cash Sales</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text)">${fmt(cashSales)}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Cash Expenses</div>
+      <div style="font-size:16px;font-weight:700;color:var(--danger)">${fmt(cashExp)}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Non-Cash Exp</div>
+      <div style="font-size:16px;font-weight:700;color:#f59e0b">${fmt(nonCashExp)}</div>
+    </div>
+  </div>
+
+  <!-- Bottom two columns -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+    <!-- Cash Added -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="background:#e8a87c;padding:12px 16px;font-size:14px;font-weight:700;color:#fff">Cash Added</div>
+      <div style="padding:14px 16px">
+        <input id="cdCashAmt" type="number" min="0" step="0.01" placeholder="Cash Amount *"
+          style="width:100%;border:none;border-bottom:2px solid #e8a87c;background:transparent;font-size:14px;padding:6px 0;margin-bottom:10px;outline:none;box-sizing:border-box">
+        <input id="cdCashNote" type="text" placeholder="Remarks"
+          style="width:100%;border:none;border-bottom:1px solid var(--border);background:transparent;font-size:14px;padding:6px 0;margin-bottom:14px;outline:none;box-sizing:border-box">
+        <button onclick="(()=>{const a=document.getElementById('cdCashAmt').value,n=document.getElementById('cdCashNote').value;if(!a||isNaN(a)||a<=0)return alert('Enter a valid amount');_cdAddCash(a,n)})()"
+          style="width:100%;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">+ Add Cash</button>
+      </div>
+      <div style="border-top:1px solid var(--border)">
+        ${cashEntries.length?cashEntries.map(e=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px">
+          <div>
+            <div style="font-weight:600;color:var(--text)">${fmt(e.amount)}</div>
+            <div style="font-size:11px;color:var(--muted)">${e.note||'—'} · ${e.created_by||''}  · ${new Date(e.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+          </div>
+          ${isAdmin?`<button onclick="_cdDeleteEntry('${e.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px" title="Delete">×</button>`:''}
+        </div>`).join('')
+        :`<div style="padding:16px;color:var(--muted);font-size:13px;text-align:center">No cash added today</div>`}
+      </div>
+    </div>
+
+    <!-- Expense Added -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="background:#4db6ac;padding:12px 16px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px;font-weight:700;color:#fff;flex:1">Expense Added</span>
+        <button class="cd-exp-btn huser-btn" data-active="1" onclick="_cdSetExpFilter('all',this)" style="font-size:11px;padding:3px 10px">All</button>
+        <button class="cd-exp-btn huser-btn" onclick="_cdSetExpFilter('cash',this)" style="font-size:11px;padding:3px 10px">Cash</button>
+        <button class="cd-exp-btn huser-btn" onclick="_cdSetExpFilter('non-cash',this)" style="font-size:11px;padding:3px 10px">Non-Cash</button>
+      </div>
+      <div style="padding:14px 16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <input id="cdExpName" type="text" placeholder="Expense Name *"
+            style="border:none;border-bottom:1px solid var(--border);background:transparent;font-size:14px;padding:6px 0;outline:none">
+          <input id="cdExpAmt" type="number" min="0" step="0.01" placeholder="Amount *"
+            style="border:none;border-bottom:1px solid var(--border);background:transparent;font-size:14px;padding:6px 0;outline:none">
+        </div>
+        <div style="display:flex;gap:16px;margin-bottom:14px;font-size:13px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="cdExpType" value="cash" checked> Cash</label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="cdExpType" value="non-cash"> Non-Cash</label>
+        </div>
+        <button onclick="(()=>{const n=document.getElementById('cdExpName').value,a=document.getElementById('cdExpAmt').value,t=document.querySelector('input[name=cdExpType]:checked')?.value||'cash';if(!n)return alert('Enter expense name');if(!a||isNaN(a)||a<=0)return alert('Enter a valid amount');_cdAddExpense(n,a,t)})()"
+          style="width:100%;background:#4db6ac;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">+ Add Expense</button>
+      </div>
+      <div style="border-top:1px solid var(--border)">
+        ${expEntries.length?expEntries.map(e=>`
+        <div class="cd-exp-row" data-type="${e.expense_type}" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px">
+          <div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="font-weight:600;color:var(--text)">${e.note}</span>
+              <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${e.expense_type==='cash'?'rgba(45,106,79,.15)':'rgba(245,158,11,.15)'};color:${e.expense_type==='cash'?'var(--primary)':'#f59e0b'};font-weight:600;text-transform:capitalize">${e.expense_type}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted)">${fmt(e.amount)} · ${e.created_by||''} · ${new Date(e.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+          </div>
+          ${isAdmin?`<button onclick="_cdDeleteEntry('${e.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px" title="Delete">×</button>`:''}
+        </div>`).join('')
+        :`<div style="padding:16px;color:var(--muted);font-size:13px;text-align:center">No expenses today</div>`}
+      </div>
+    </div>
+
+  </div>
+</div>`;
 }
 
 const _BIBLE_VERSES=[
@@ -3443,7 +3651,7 @@ function showTab(tab,el){
   if(sbBtn)sbBtn.classList.add('active');
 
   // Update page title bar text
-  const tabNames={home:'OLI Home',pos:'Dashboard',history:'Sales Transaction',reports:'Reports',manage:'Products / SKUs',refund:'Refunds',staff:'Users'};
+  const tabNames={home:'OLI Home',pos:'Dashboard',history:'Sales Transaction',reports:'Reports',manage:'Products / SKUs',refund:'Refunds',cashDrawer:'Cash Drawer',staff:'Users'};
   const ptbEl=document.getElementById('pageTitleName');
   if(ptbEl)ptbEl.textContent=tabNames[tab]||tab;
 
@@ -3489,7 +3697,7 @@ function showTab(tab,el){
 
     // Step 1: forcibly hide ALL panels
     ['posPanel','cartPanel'].forEach(id=>{const p=document.getElementById(id);if(p)p.style.display='none'});
-    ['historyPanel','reportsPanel','managePanel','refundPanel','staffPanel','homePanel'].forEach(id=>{
+    ['historyPanel','reportsPanel','managePanel','refundPanel','staffPanel','cashDrawerPanel','homePanel'].forEach(id=>{
       const p=document.getElementById(id);if(p)p.classList.remove('visible');
     });
 
@@ -3510,6 +3718,7 @@ function showTab(tab,el){
         manage:()=>{document.getElementById('managePanel').classList.add('visible');requestAnimationFrame(renderManage)},
         refund:()=>{document.getElementById('refundPanel').classList.add('visible');requestAnimationFrame(renderRefundPanel)},
         staff:()=>{document.getElementById('staffPanel').classList.add('visible');requestAnimationFrame(loadStaff)},
+        cashDrawer:()=>{document.getElementById('cashDrawerPanel').classList.add('visible');requestAnimationFrame(renderCashDrawer)},
       };
       if(map[tab])map[tab]();
     }
