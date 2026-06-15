@@ -3211,10 +3211,14 @@ function _dtrExportSalCSV(){
 // ── REPORTS ──────────────────────────────────────────────────────────────────
 async function _dtrRenderReports(el){
   el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>`;
+  const[rptY,rptM]=_dtrRptMonth.split('-').map(Number);
+  const rptLastDay=new Date(rptY,rptM,0).getDate();
+  const rptFrom=_dtrRptMonth+'-01';
+  const rptTo=_dtrRptMonth+'-'+String(rptLastDay).padStart(2,'0');
   const[staffRes,salRes,logsRes]=await Promise.all([
     sb.from('dtr_staff').select('id,name').eq('is_active',true).order('name'),
-    sb.from('dtr_salary_records').select('*').gte('date',_dtrRptMonth+'-01').lte('date',_dtrRptMonth+'-31'),
-    sb.from('dtr_logs').select('staff_id,status').gte('date',_dtrRptMonth+'-01').lte('date',_dtrRptMonth+'-31')
+    sb.from('dtr_salary_records').select('*').gte('date',rptFrom).lte('date',rptTo),
+    sb.from('dtr_logs').select('staff_id,status').gte('date',rptFrom).lte('date',rptTo)
   ]);
   const staff=staffRes.data||[];
   const statsMap={};staff.forEach(s=>{statsMap[s.id]={name:s.name,present:0,absent:0,otHours:0,overrideDays:0,grossPay:0};});
