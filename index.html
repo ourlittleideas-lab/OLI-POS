@@ -2353,15 +2353,32 @@ async function renderCashDrawer(){
   // Always query directly from Supabase using the selected date range
   const [{day,entries}, salesRes]=await Promise.all([
     _cdLoadDay(_cdFrom,_cdTo),
-    sb.from('sales').select('id,payment,total,created_at,sold_by')
+    sb.from('sales').select('id,payment,total,created_at,sold_by,refund_of')
       .gte('created_at', _cdFrom+'T00:00:00')
       .lte('created_at', _cdTo+'T23:59:59')
   ]);
-  const todaySales=(salesRes.data||[]).filter(s=>s.payment!=='refund');
-  const cashSales=todaySales.filter(s=>s.payment.toLowerCase()==='cash').reduce((a,s)=>a+Number(s.total),0);
-  const gcashSales=todaySales.filter(s=>s.payment.toLowerCase()==='gcash').reduce((a,s)=>a+Number(s.total),0);
-  const cardSales=todaySales.filter(s=>s.payment.toLowerCase()==='card').reduce((a,s)=>a+Number(s.total),0);
-  const bankSales=todaySales.filter(s=>s.payment.toLowerCase()==='bank transfer').reduce((a,s)=>a+Number(s.total),0);
+  const allSalesData=salesRes.data||[];
+  const normalSales=allSalesData.filter(s=>s.payment!=='refund');
+  const refundRecords=allSalesData.filter(s=>s.payment==='refund'&&s.refund_of!=null);
+  // Build id→payment map from normal sales in range
+  const _salePayMap={};
+  normalSales.forEach(s=>{_salePayMap[s.id]=s.payment.toLowerCase();});
+  // For refunds whose original sale is outside the date range, fetch their payment method
+  const missingIds=refundRecords.map(r=>r.refund_of).filter(id=>!_salePayMap[id]);
+  if(missingIds.length>0){
+    const{data:origData}=await sb.from('sales').select('id,payment').in('id',missingIds);
+    (origData||[]).forEach(s=>{_salePayMap[s.id]=s.payment.toLowerCase();});
+  }
+  // Compute refunded amounts per payment method
+  const _refundByPay={};
+  refundRecords.forEach(r=>{
+    const op=_salePayMap[r.refund_of];
+    if(op)_refundByPay[op]=(_refundByPay[op]||0)+Math.abs(Number(r.total));
+  });
+  const cashSales=normalSales.filter(s=>s.payment.toLowerCase()==='cash').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['cash']||0);
+  const gcashSales=normalSales.filter(s=>s.payment.toLowerCase()==='gcash').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['gcash']||0);
+  const cardSales=normalSales.filter(s=>s.payment.toLowerCase()==='card').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['card']||0);
+  const bankSales=normalSales.filter(s=>s.payment.toLowerCase()==='bank transfer').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['bank transfer']||0);
   const cashAdded=entries.filter(e=>e.entry_type==='cash_added').reduce((a,e)=>a+Number(e.amount),0);
   const cashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='cash').reduce((a,e)=>a+Number(e.amount),0);
   const nonCashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='non-cash').reduce((a,e)=>a+Number(e.amount),0);
