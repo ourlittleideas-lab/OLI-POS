@@ -627,6 +627,9 @@ tbody tr:hover td{background:var(--bg)}
     <button class="sidebar-btn" id="tabCashDrawer" data-tab="cashDrawer" onclick="showTab('cashDrawer',this)" title="Cash Drawer" style="display:none">
       <i class="ti ti-cash"></i><span class="sb-label">Cash Drawer</span>
     </button>
+    <button class="sidebar-btn" id="tabDTR" data-tab="dtr" onclick="showTab('dtr',this)" title="DTR" style="display:none">
+      <i class="ti ti-clock-record"></i><span class="sb-label">DTR</span>
+    </button>
     <button class="sidebar-btn" id="tabStaff" data-tab="staff" onclick="showTab('staff',this)" title="Users" style="display:none">
       <i class="ti ti-users"></i><span class="sb-label">Users</span>
     </button>
@@ -850,6 +853,7 @@ tbody tr:hover td{background:var(--bg)}
 
 <!-- OLI Home summary page (desktop only, rendered by renderHome()) -->
 <div class="full-panel m-panel" id="cashDrawerPanel" style="overflow-y:auto;gap:0"></div>
+<div class="full-panel m-panel" id="dtrPanel" style="overflow:hidden;gap:0;padding:0"></div>
 <div class="full-panel m-panel" id="homePanel" style="overflow-y:auto;gap:0"></div>
 
 </div>
@@ -1071,6 +1075,10 @@ tbody tr:hover td{background:var(--bg)}
   <button class="mnav-btn" id="mnavCashDrawer" data-tab="cashDrawer" onclick="showTab('cashDrawer',this)" style="display:none">
     <span class="mnav-icon">💵</span>
     <span>Drawer</span>
+  </button>
+  <button class="mnav-btn" id="mnavDTR" data-tab="dtr" onclick="showTab('dtr',this)" style="display:none">
+    <span class="mnav-icon">🕐</span>
+    <span>DTR</span>
   </button>
 </div>
 
@@ -1355,6 +1363,10 @@ function doLogout(){
   // Close cash drawer modal if open
   const cdm=document.getElementById('cdModal');
   if(cdm)cdm.style.display='none';
+  // Close DTR modal if open
+  const dtrm=document.getElementById('dtrModal');
+  if(dtrm)dtrm.style.display='none';
+  _dtrTab='clock';_dtrLogDate='';_dtrSalStaff=null;_dtrRptMonth='';
   localStorage.removeItem('oli_session');
   currentUser=null;
   cart={};
@@ -1443,11 +1455,13 @@ function applyRolePermissions(){
   if(g('tabManage'))g('tabManage').style.display=r==='admin'?'':'none';
   if(g('tabRefund'))g('tabRefund').style.display=r==='admin'?'':'none';
   if(g('tabCashDrawer'))g('tabCashDrawer').style.display='';
+  if(g('tabDTR'))g('tabDTR').style.display='';
   if(g('tabStaff'))g('tabStaff').style.display=r==='admin'?'':'none';
   // Mobile bottom nav: 3rd tab differs by role
   if(g('mnavReports'))g('mnavReports').style.display=r==='manager'?'':'none';
   if(g('mnavRefund'))g('mnavRefund').style.display=r==='admin'?'':'none';
   if(g('mnavCashDrawer'))g('mnavCashDrawer').style.display='';
+  if(g('mnavDTR'))g('mnavDTR').style.display='';
   // Sidebar avatar + page title user
   const av=g('sidebarAvatar');
   if(av){av.textContent=(currentUser?.name?.[0]||'?').toUpperCase();av.title=currentUser?.name||''}
@@ -2577,6 +2591,666 @@ function _cdPaint(panel,day,entries,allSalesData){
   </div>
 </div>`;
 }
+
+// ─── DTR Module ──────────────────────────────────────────────────────────────
+let _dtrTab='clock';
+let _dtrLogDate='';
+let _dtrSalStaff=null;
+let _dtrSalPeriod='monthly';
+let _dtrSalDate='';
+let _dtrRptMonth='';
+let _dtrClockStaffId=null;
+let _dtrClockAction=null;
+let _dtrPinVal='';
+let _dtrOvAmt=null;
+
+function _dtrToday(){return new Date().toISOString().slice(0,10)}
+
+async function renderDTR(){
+  const panel=document.getElementById('dtrPanel');
+  if(!panel)return;
+  if(!_dtrLogDate)_dtrLogDate=_dtrToday();
+  if(!_dtrSalDate)_dtrSalDate=_dtrToday();
+  if(!_dtrRptMonth)_dtrRptMonth=_dtrToday().slice(0,7);
+  const isAdmin=currentUser?.role==='admin';
+  if(isAdmin){_dtrAdminShell(panel);}
+  else{await _dtrRenderClock(panel);}
+}
+
+function _dtrAdminShell(panel){
+  const tabs=[{key:'clock',label:'Clock',icon:'ti-clock'},{key:'staff',label:'Staff',icon:'ti-users'},{key:'shifts',label:'Shifts',icon:'ti-calendar-time'},{key:'log',label:'DTR Log',icon:'ti-clipboard-list'},{key:'salary',label:'Salary',icon:'ti-cash'},{key:'reports',label:'Reports',icon:'ti-chart-bar'}];
+  panel.innerHTML=`<style>
+    @media(max-width:768px){
+      .dtr-stat-grid-5{grid-template-columns:repeat(3,1fr)!important}
+      .dtr-stat-grid-5 .dtr-stat-last{grid-column:span 3!important}
+      .dtr-stat-grid-4{grid-template-columns:1fr 1fr!important}
+      .dtr-filter-row{flex-direction:column!important;align-items:stretch!important}
+      .dtr-filter-row select,.dtr-filter-row input{width:100%!important;box-sizing:border-box!important}
+      .dtr-itab span.dtr-tab-label{display:none}
+      .dtr-itab{padding:8px 10px!important}
+      .dtr-itab i{margin-right:0!important;font-size:16px}
+    }
+  </style>
+  <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+    <div style="display:flex;gap:2px;padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0">
+      ${tabs.map(t=>`<button class="dtr-itab" data-tab="${t.key}" onclick="_dtrSwitch('${t.key}')" style="padding:7px 14px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:all .15s;background:${_dtrTab===t.key?'var(--primary)':'transparent'};color:${_dtrTab===t.key?'#fff':'var(--muted)'}"><i class="ti ${t.icon}" style="margin-right:4px"></i><span class="dtr-tab-label">${t.label}</span></button>`).join('')}
+    </div>
+    <div id="dtrContent" style="flex:1;overflow-y:auto;min-height:0"></div>
+  </div>`;
+  _dtrSwitch(_dtrTab);
+}
+
+async function _dtrSwitch(tab){
+  _dtrTab=tab;
+  document.querySelectorAll('.dtr-itab').forEach(b=>{const a=b.dataset.tab===tab;b.style.background=a?'var(--primary)':'transparent';b.style.color=a?'#fff':'var(--muted)';});
+  const el=document.getElementById('dtrContent');
+  if(!el)return;
+  switch(tab){
+    case 'clock':await _dtrRenderClock(el);break;
+    case 'staff':await _dtrRenderStaff(el);break;
+    case 'shifts':await _dtrRenderShifts(el);break;
+    case 'log':await _dtrRenderLog(el);break;
+    case 'salary':await _dtrRenderSalary(el);break;
+    case 'reports':await _dtrRenderReports(el);break;
+  }
+}
+
+function _dtrStatusColor(s){return{present:'#2d6a4f',late:'#f59e0b',absent:'#6b7280',active:'#3b82f6',ot:'#8b5cf6'}[s]||'#6b7280';}
+
+// ── CLOCK IN/OUT ─────────────────────────────────────────────────────────────
+async function _dtrRenderClock(el){
+  el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading staff…</div>`;
+  const today=_dtrToday();
+  const[staffRes,logsRes]=await Promise.all([
+    sb.from('dtr_staff').select('*,dtr_shifts(id,name,start_time,end_time)').eq('is_active',true).order('name'),
+    sb.from('dtr_logs').select('*').eq('date',today)
+  ]);
+  const staff=staffRes.data||[];
+  const logs=logsRes.data||[];
+  const logMap={};logs.forEach(l=>logMap[l.staff_id]=l);
+  const dateStr=new Date().toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  el.innerHTML=`<div style="padding:16px 16px 80px;max-width:620px;margin:0 auto">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:500">${dateStr}</div>
+    ${!staff.length?`<div style="text-align:center;padding:40px;color:var(--muted);font-size:14px">No active DTR staff found.<br><span style="font-size:12px">Add staff in the Staff tab.</span></div>`:
+    staff.map(s=>{
+      const log=logMap[s.id];
+      const hasIn=!!(log&&log.time_in);
+      const hasOut=!!(log&&log.time_out);
+      const locked=!!(log&&log.is_locked);
+      const shift=s.dtr_shifts;
+      const timeInStr=hasIn?new Date(log.time_in).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—';
+      const timeOutStr=hasOut?new Date(log.time_out).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—';
+      const statusBadge=log&&log.status?`<span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;background:${_dtrStatusColor(log.status)}22;color:${_dtrStatusColor(log.status)};border:1px solid ${_dtrStatusColor(log.status)}44;text-transform:uppercase;margin-left:6px">${log.status}</span>`:'';
+      const inActive=!hasIn&&!locked;
+      const outActive=hasIn&&!hasOut&&!locked;
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:15px;color:var(--text)">${s.name}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.role}${shift?' · '+shift.name+' '+shift.start_time+'–'+shift.end_time:' · No shift'}</div>
+            ${log?`<div style="font-size:11px;color:var(--muted);margin-top:2px">IN: ${timeInStr} · OUT: ${timeOutStr}${statusBadge}</div>`:''}
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0">
+            <button onclick="_dtrOpenPin(${s.id},'in')" ${!inActive?'disabled':''}
+              style="padding:8px 18px;border-radius:8px;border:none;font-weight:700;font-size:13px;cursor:${inActive?'pointer':'default'};background:${hasIn?'#2d6a4f':'rgba(45,106,79,.12)'};color:${hasIn?'#fff':'#2d6a4f'};opacity:${inActive?0.8:1};transition:all .15s">IN</button>
+            <button onclick="_dtrOpenPin(${s.id},'out')" ${!outActive?'disabled':''}
+              style="padding:8px 18px;border-radius:8px;border:none;font-weight:700;font-size:13px;cursor:${outActive?'pointer':'default'};background:${hasOut?'#e53935':'rgba(229,57,53,.12)'};color:${hasOut?'#fff':'#e53935'};opacity:${outActive?0.8:1};transition:all .15s">OUT</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function _dtrOpenPin(staffId,action){
+  _dtrClockStaffId=staffId;_dtrClockAction=action;_dtrPinVal='';
+  const{data:s}=await sb.from('dtr_staff').select('name').eq('id',staffId).single();
+  const staffName=s?.name||'Staff';
+  const timeNow=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:28px 24px;max-width:300px;width:100%;text-align:center">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:700;margin-bottom:6px">${action==='in'?'Time In':'Time Out'}</div>
+    <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px">${staffName}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">${timeNow}</div>
+    <div id="dtrPinDots" style="display:flex;justify-content:center;gap:14px;margin-bottom:8px">
+      ${[0,1,2,3].map(i=>`<div id="dtrDot${i}" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--border);background:transparent;transition:all .1s"></div>`).join('')}
+    </div>
+    <div id="dtrPinErr" style="color:#e53935;font-size:12px;min-height:18px;margin-bottom:12px"></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:220px;margin:0 auto">
+      ${[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="_dtrPinKey('${n}')" style="padding:15px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:18px;font-weight:700;color:var(--text);cursor:pointer" onmouseover="this.style.background='var(--primary)';this.style.color='#fff';this.style.borderColor='transparent'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--text)';this.style.borderColor='var(--border)'">${n}</button>`).join('')}
+      <button onclick="_dtrPinKey('back')" style="padding:15px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:16px;color:var(--muted);cursor:pointer" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--bg)'">⌫</button>
+      <button onclick="_dtrPinKey('0')" style="padding:15px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:18px;font-weight:700;color:var(--text);cursor:pointer" onmouseover="this.style.background='var(--primary)';this.style.color='#fff';this.style.borderColor='transparent'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--text)';this.style.borderColor='var(--border)'">0</button>
+      <button onclick="_dtrPinSubmit()" style="padding:15px;border-radius:10px;border:none;background:var(--primary);font-size:16px;color:#fff;cursor:pointer;font-weight:700">✓</button>
+    </div>
+    <button onclick="_dtrCloseModal()" style="margin-top:16px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px">Cancel</button>
+  </div>`);
+}
+
+function _dtrPinKey(k){
+  if(k==='back'){_dtrPinVal=_dtrPinVal.slice(0,-1);}
+  else if(_dtrPinVal.length<4){_dtrPinVal+=k;}
+  _dtrUpdateDots();
+  if(_dtrPinVal.length===4)_dtrPinSubmit();
+}
+
+function _dtrUpdateDots(){
+  for(let i=0;i<4;i++){const d=document.getElementById('dtrDot'+i);if(d){d.style.background=i<_dtrPinVal.length?'var(--primary)':'transparent';d.style.borderColor=i<_dtrPinVal.length?'var(--primary)':'var(--border)';}}
+}
+
+async function _dtrPinSubmit(){
+  if(_dtrPinVal.length!==4)return;
+  const errEl=document.getElementById('dtrPinErr');
+  const{data:s}=await sb.from('dtr_staff').select('id,name,pin,daily_rate,shift_id,dtr_shifts(name,start_time,end_time,total_hours,grace_minutes)').eq('id',_dtrClockStaffId).single();
+  if(!s||s.pin!==_dtrPinVal){if(errEl)errEl.textContent='Incorrect PIN. Try again.';_dtrPinVal='';_dtrUpdateDots();return;}
+  const now=new Date();const today=_dtrToday();
+  const timeNowStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  if(_dtrClockAction==='in'){
+    const{data:existing}=await sb.from('dtr_logs').select('*').eq('staff_id',_dtrClockStaffId).eq('date',today).maybeSingle();
+    if(existing&&existing.time_in){if(errEl)errEl.textContent='Already clocked in today.';return;}
+    let status='active';
+    const shift=s.dtr_shifts;
+    if(shift){
+      const[sh,sm]=shift.start_time.split(':').map(Number);
+      const graceEnd=(sh*60+sm+(shift.grace_minutes||0))*60*1000;
+      const midnight=new Date(now);midnight.setHours(0,0,0,0);
+      if((now-midnight)>graceEnd)status='late';
+    }
+    if(existing){await sb.from('dtr_logs').update({time_in:now.toISOString(),status}).eq('id',existing.id);}
+    else{await sb.from('dtr_logs').insert({staff_id:_dtrClockStaffId,date:today,time_in:now.toISOString(),status});}
+    const{data:salExist}=await sb.from('dtr_salary_records').select('id').eq('staff_id',_dtrClockStaffId).eq('date',today).maybeSingle();
+    if(!salExist)await sb.from('dtr_salary_records').insert({staff_id:_dtrClockStaffId,date:today,daily_rate_snapshot:s.daily_rate,base_pay:s.daily_rate,gross_pay:s.daily_rate});
+    _dtrCloseModal();
+    _dtrShowSuccessIn(s.name,timeNowStr,s.dtr_shifts);
+  } else {
+    const{data:log}=await sb.from('dtr_logs').select('*').eq('staff_id',_dtrClockStaffId).eq('date',today).maybeSingle();
+    if(!log||!log.time_in){if(errEl)errEl.textContent='No time-in record found.';return;}
+    let status=log.status==='late'?'late':'present';
+    const shift=s.dtr_shifts;
+    if(shift){
+      const[eh,em]=shift.end_time.split(':').map(Number);
+      const endMs=(eh*60+em)*60*1000;
+      const midnight=new Date(now);midnight.setHours(0,0,0,0);
+      if((now-midnight)>(endMs+30*60*1000))status='ot';
+    }
+    await sb.from('dtr_logs').update({time_out:now.toISOString(),status}).eq('id',log.id);
+    _dtrCloseModal();
+    _dtrShowSuccessOut(s.name,timeNowStr);
+  }
+  const target=document.getElementById('dtrContent')||document.getElementById('dtrPanel');
+  if(target)setTimeout(()=>_dtrRenderClock(target),200);
+}
+
+function _dtrShowSuccessIn(name,time,shift){
+  const shiftInfo=shift?shift.name+' · '+shift.start_time+'–'+shift.end_time:'';
+  _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:32px 24px;max-width:320px;width:100%;text-align:center">
+    <div style="font-size:44px;margin-bottom:12px">🌞</div>
+    <div style="font-size:16px;font-weight:700;color:#2d6a4f;margin-bottom:4px">Welcome to OLI HOME,</div>
+    <div style="font-size:24px;font-weight:900;color:var(--text);margin-bottom:20px">${name}!</div>
+    <div style="background:#e8f5e9;border-radius:12px;padding:14px 18px;margin-bottom:20px;text-align:left">
+      <div style="font-size:14px;color:#2d6a4f;font-weight:700">⏰ Time In: ${time}</div>
+      ${shiftInfo?`<div style="font-size:12px;color:var(--muted);margin-top:4px">📋 ${shiftInfo}</div>`:''}
+    </div>
+    <button onclick="_dtrCloseModal()" style="padding:12px 28px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;width:100%">← Back to Staff List</button>
+  </div>`);
+}
+
+function _dtrShowSuccessOut(name,time){
+  _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:32px 24px;max-width:320px;width:100%;text-align:center">
+    <div style="font-size:44px;margin-bottom:12px">🌇</div>
+    <div style="font-size:16px;font-weight:700;color:#e53935;margin-bottom:4px">Thank you for the help,</div>
+    <div style="font-size:24px;font-weight:900;color:var(--text);margin-bottom:16px">${name}!</div>
+    <div style="background:#fff3e0;border-radius:12px;padding:12px 16px;margin-bottom:12px">
+      <div style="font-size:14px;color:#e8a87c;font-weight:700">⏰ Time Out: ${time}</div>
+    </div>
+    <div style="background:#e3f2fd;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:#1565c0;line-height:1.7;text-align:left">
+      💡 Make sure all the lights are off and plugs unplugged to save Mother Earth!
+    </div>
+    <div style="font-size:36px;font-weight:900;color:var(--text);margin-bottom:18px">INGAT! 👋</div>
+    <button onclick="_dtrCloseModal()" style="padding:12px 28px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;width:100%">← Back to Staff List</button>
+  </div>`);
+}
+
+// ── STAFF MANAGEMENT ─────────────────────────────────────────────────────────
+async function _dtrRenderStaff(el){
+  el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>`;
+  const[staffRes,shiftRes]=await Promise.all([
+    sb.from('dtr_staff').select('*,dtr_shifts(name)').order('name'),
+    sb.from('dtr_shifts').select('id,name').order('name')
+  ]);
+  const staff=staffRes.data||[];const shifts=shiftRes.data||[];
+  const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2});
+  el.innerHTML=`<div style="padding:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:700;color:var(--text)">DTR Staff</div>
+      <button onclick="_dtrOpenStaffModal(null)" style="padding:8px 16px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">+ Add Staff</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:var(--surface);border-bottom:2px solid var(--border)">
+          ${['Name','Role','Shift','Daily Rate','Status','Actions'].map(h=>`<th style="padding:10px 12px;text-align:${h==='Daily Rate'?'right':'left'};color:var(--muted);font-weight:600;white-space:nowrap">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${!staff.length?`<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted)">No DTR staff yet.</td></tr>`:
+          staff.map(s=>`<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:10px 12px;font-weight:600;color:var(--text)">${s.name}</td>
+            <td style="padding:10px 12px;color:var(--muted)">${s.role}</td>
+            <td style="padding:10px 12px;color:var(--muted)">${s.dtr_shifts?.name||'—'}</td>
+            <td style="padding:10px 12px;text-align:right;font-weight:600;color:var(--text)">${fmt(s.daily_rate)}</td>
+            <td style="padding:10px 12px"><span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;background:${s.is_active?'rgba(45,106,79,.15)':'rgba(107,114,128,.15)'};color:${s.is_active?'var(--primary)':'var(--muted)'}">${s.is_active?'Active':'Inactive'}</span></td>
+            <td style="padding:10px 12px">
+              <button onclick="_dtrOpenStaffModal(${s.id})" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;font-size:11px;cursor:pointer;color:var(--text);margin-right:4px">Edit</button>
+              <button onclick="_dtrToggleStaff(${s.id},${s.is_active})" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;font-size:11px;cursor:pointer;color:${s.is_active?'#e53935':'var(--primary)'}">${s.is_active?'Deactivate':'Activate'}</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+let _dtrEditStaffId=null;
+async function _dtrOpenStaffModal(staffId){
+  _dtrEditStaffId=staffId;
+  const[shiftRes,staffRes]=await Promise.all([
+    sb.from('dtr_shifts').select('id,name').order('name'),
+    staffId?sb.from('dtr_staff').select('*').eq('id',staffId).single():Promise.resolve({data:null})
+  ]);
+  const shifts=shiftRes.data||[];const s=staffRes.data;
+  const isEdit=!!s;
+  _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:24px;max-width:400px;width:100%;max-height:90vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:20px">${isEdit?'Edit Staff':'Add DTR Staff'}</div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Full Name</label>
+        <input id="dtrSfName" type="text" value="${s?.name||''}" placeholder="Staff full name" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Role / Position</label>
+        <input id="dtrSfRole" type="text" value="${s?.role||'Staff'}" placeholder="e.g. Cashier, Salesperson" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">${isEdit?'Reset PIN (blank = keep current)':'4-Digit PIN'}</label>
+        <input id="dtrSfPin" type="password" maxlength="4" inputmode="numeric" placeholder="••••" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Daily Rate (₱)</label>
+        <input id="dtrSfRate" type="number" min="0" step="0.01" value="${s?.daily_rate||''}" placeholder="0.00" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Assigned Shift</label>
+        <select id="dtrSfShift" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
+          <option value="">No shift assigned</option>
+          ${shifts.map(sh=>`<option value="${sh.id}" ${s?.shift_id==sh.id?'selected':''}>${sh.name}</option>`).join('')}
+        </select></div>
+      <div id="dtrSfErr" style="color:#e53935;font-size:12px;min-height:16px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="_dtrCloseModal()" style="padding:10px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:13px;cursor:pointer;color:var(--text)">Cancel</button>
+        <button onclick="_dtrSaveStaff()" style="padding:10px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">${isEdit?'Save Changes':'Add Staff'}</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function _dtrSaveStaff(){
+  const name=document.getElementById('dtrSfName').value.trim();
+  const role=document.getElementById('dtrSfRole').value.trim()||'Staff';
+  const pin=document.getElementById('dtrSfPin').value.trim();
+  const rate=parseFloat(document.getElementById('dtrSfRate').value)||0;
+  const shiftId=document.getElementById('dtrSfShift').value||null;
+  const errEl=document.getElementById('dtrSfErr');
+  if(!name){errEl.textContent='Name is required.';return}
+  if(!_dtrEditStaffId&&(!pin||pin.length!==4)){errEl.textContent='4-digit PIN is required.';return}
+  if(pin&&pin.length!==4){errEl.textContent='PIN must be exactly 4 digits.';return}
+  const row={name,role,daily_rate:rate,shift_id:shiftId};
+  if(pin)row.pin=pin;
+  if(_dtrEditStaffId){await sb.from('dtr_staff').update(row).eq('id',_dtrEditStaffId);}
+  else{row.pin=pin;row.is_active=true;await sb.from('dtr_staff').insert(row);}
+  _dtrCloseModal();_dtrSwitch('staff');
+}
+
+async function _dtrToggleStaff(id,isActive){
+  if(!confirm(`${isActive?'Deactivate':'Activate'} this staff member?`))return;
+  await sb.from('dtr_staff').update({is_active:!isActive}).eq('id',id);
+  _dtrSwitch('staff');
+}
+
+// ── SHIFTS ───────────────────────────────────────────────────────────────────
+async function _dtrRenderShifts(el){
+  el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>`;
+  const{data:shifts}=await sb.from('dtr_shifts').select('*').order('name');
+  el.innerHTML=`<div style="padding:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:700;color:var(--text)">Shift Schedules</div>
+      <button onclick="_dtrOpenShiftModal(null)" style="padding:8px 16px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">+ Add Shift</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${!(shifts||[]).length?`<div style="padding:24px;text-align:center;color:var(--muted)">No shifts yet.</div>`:
+      (shifts||[]).map(sh=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--text)">${sh.name}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">${sh.start_time} – ${sh.end_time} · ${sh.total_hours}h · Grace: ${sh.grace_minutes} min</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button onclick="_dtrOpenShiftModal(${sh.id})" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">Edit</button>
+          <button onclick="_dtrDeleteShift(${sh.id})" style="padding:6px 12px;border-radius:6px;border:1px solid #f48fb1;background:transparent;font-size:12px;cursor:pointer;color:#e53935">Delete</button>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+let _dtrEditShiftId=null;
+async function _dtrOpenShiftModal(shiftId){
+  _dtrEditShiftId=shiftId;
+  const{data:sh}=shiftId?await sb.from('dtr_shifts').select('*').eq('id',shiftId).single():{data:null};
+  _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:24px;max-width:380px;width:100%">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:20px">${sh?'Edit Shift':'Add Shift'}</div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Shift Name</label>
+        <input id="dtrShName" type="text" value="${sh?.name||''}" placeholder="e.g. Morning Shift" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Start Time</label>
+          <input id="dtrShStart" type="time" value="${sh?.start_time||''}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">End Time</label>
+          <input id="dtrShEnd" type="time" value="${sh?.end_time||''}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Total Hours</label>
+          <input id="dtrShHours" type="number" min="1" max="24" step="0.5" value="${sh?.total_hours||8}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Grace Period (min)</label>
+          <input id="dtrShGrace" type="number" min="0" max="120" value="${sh?.grace_minutes||15}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      </div>
+      <div id="dtrShErr" style="color:#e53935;font-size:12px;min-height:16px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="_dtrCloseModal()" style="padding:10px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:13px;cursor:pointer;color:var(--text)">Cancel</button>
+        <button onclick="_dtrSaveShift()" style="padding:10px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">${sh?'Save':'Add Shift'}</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function _dtrSaveShift(){
+  const name=document.getElementById('dtrShName').value.trim();
+  const start=document.getElementById('dtrShStart').value;
+  const end=document.getElementById('dtrShEnd').value;
+  const hours=parseFloat(document.getElementById('dtrShHours').value)||8;
+  const grace=parseInt(document.getElementById('dtrShGrace').value)||15;
+  const errEl=document.getElementById('dtrShErr');
+  if(!name||!start||!end){errEl.textContent='Name, start and end time are required.';return}
+  const row={name,start_time:start,end_time:end,total_hours:hours,grace_minutes:grace};
+  if(_dtrEditShiftId){await sb.from('dtr_shifts').update(row).eq('id',_dtrEditShiftId);}
+  else{await sb.from('dtr_shifts').insert(row);}
+  _dtrCloseModal();_dtrSwitch('shifts');
+}
+
+async function _dtrDeleteShift(id){
+  if(!confirm('Delete this shift? Staff assigned to it will lose their shift assignment.'))return;
+  await sb.from('dtr_shifts').delete().eq('id',id);
+  _dtrSwitch('shifts');
+}
+
+// ── DTR LOG DASHBOARD ─────────────────────────────────────────────────────────
+async function _dtrRenderLog(el){
+  el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>`;
+  const[staffRes,logsRes,salRes]=await Promise.all([
+    sb.from('dtr_staff').select('*,dtr_shifts(name)').eq('is_active',true).order('name'),
+    sb.from('dtr_logs').select('*').eq('date',_dtrLogDate),
+    sb.from('dtr_salary_records').select('*').eq('date',_dtrLogDate)
+  ]);
+  const staff=staffRes.data||[];
+  const logMap={};(logsRes.data||[]).forEach(l=>logMap[l.staff_id]=l);
+  const salMap={};(salRes.data||[]).forEach(s=>salMap[s.staff_id]=s);
+  let present=0,absent=0,late=0,ot=0,totalPay=0;
+  staff.forEach(s=>{const log=logMap[s.id];const sal=salMap[s.id];if(!log||log.status==='absent')absent++;else{present++;if(log.status==='late')late++;if(log.status==='ot')ot++;}if(sal)totalPay+=Number(sal.gross_pay||0);});
+  const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2});
+  const fmtT=t=>t?new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—';
+  el.innerHTML=`<div style="padding:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="font-size:16px;font-weight:700;color:var(--text)">DTR Log</div>
+      <input type="date" value="${_dtrLogDate}" max="${_dtrToday()}" onchange="_dtrLogDate=this.value;_dtrSwitch('log')" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text)">
+      <button onclick="_dtrLogDate=_dtrToday();_dtrSwitch('log')" style="padding:7px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer">Today</button>
+    </div>
+    <div class="dtr-stat-grid-5" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
+      ${[['Present',present,'#2d6a4f'],['Absent',absent,'#6b7280'],['Late',late,'#f59e0b'],['OT',ot,'#8b5cf6'],['Total Pay',fmt(totalPay),'#0ea5e9']].map(([l,v,c],i)=>`<div class="${i===4?'dtr-stat-last':''}" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 8px;text-align:center"><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div><div style="font-size:18px;font-weight:800;color:${c}">${v}</div></div>`).join('')}
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--surface);border-bottom:2px solid var(--border)">
+          ${['Staff','Shift','Time In','Time Out','Hrs','Status','Rate','Pay',''].map(h=>`<th style="padding:9px 10px;text-align:${['Rate','Pay'].includes(h)?'right':'left'};color:var(--muted);font-weight:600;white-space:nowrap">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${staff.map(s=>{
+            const log=logMap[s.id];const sal=salMap[s.id];
+            const status=log?.status||'absent';
+            const hrs=log?.time_in&&log?.time_out?((new Date(log.time_out)-new Date(log.time_in))/3600000).toFixed(1):'—';
+            return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:9px 10px;font-weight:600;color:var(--text)">${s.name}</td>
+              <td style="padding:9px 10px;color:var(--muted);font-size:11px">${s.dtr_shifts?.name||'—'}</td>
+              <td style="padding:9px 10px;color:var(--text)">${fmtT(log?.time_in)}</td>
+              <td style="padding:9px 10px;color:var(--text)">${fmtT(log?.time_out)}</td>
+              <td style="padding:9px 10px;color:var(--muted)">${hrs}${hrs!=='—'?'h':''}</td>
+              <td style="padding:9px 10px"><span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:${_dtrStatusColor(status)}22;color:${_dtrStatusColor(status)};border:1px solid ${_dtrStatusColor(status)}44;text-transform:uppercase">${status}</span></td>
+              <td style="padding:9px 10px;text-align:right;color:var(--muted);font-size:11px">${fmt(s.daily_rate)}</td>
+              <td style="padding:9px 10px;text-align:right;font-weight:700;color:var(--text)">${fmt(sal?.gross_pay||0)}${sal?.override_reason?`<div style="font-size:9px;color:#f59e0b;font-weight:700">OVERRIDDEN</div>`:''}</td>
+              <td style="padding:9px 10px;white-space:nowrap">
+                <button onclick="_dtrOpenOverride(${s.id},'${s.name.replace(/'/g,"\\'")}',${sal?.gross_pay||0},${s.daily_rate})" style="padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;font-size:11px;cursor:pointer;color:var(--text)">Override</button>
+                ${status==='active'?`<button onclick="_dtrTagOT(${s.id})" style="padding:3px 8px;border-radius:6px;border:1px solid #8b5cf6;background:transparent;font-size:11px;cursor:pointer;color:#8b5cf6;margin-left:4px">OT</button>`:''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px"><button onclick="_dtrExportLogCSV()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">📥 Export CSV</button></div>
+  </div>`;
+}
+
+function _dtrOpenOverride(staffId,staffName,currentPay,dailyRate){
+  const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2});
+  _dtrOvAmt=null;
+  _dtrShowModal(`<div style="background:var(--surface);border-radius:16px;padding:24px;max-width:380px;width:100%">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">Override Pay</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">${staffName} · Current: ${fmt(currentPay)}</div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px">Override Type</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="dtr-ov-btn" onclick="_dtrOvPick('half',${dailyRate/2},this)" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">Half Day (${fmt(dailyRate/2)})</button>
+          <button class="dtr-ov-btn" onclick="_dtrOvPick('none',0,this)" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">No Pay</button>
+          <button class="dtr-ov-btn" onclick="_dtrOvPick('custom',null,this)" style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">Custom Amount</button>
+        </div>
+      </div>
+      <div id="dtrOvCustomWrap" style="display:none"><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Custom Amount (₱)</label>
+        <input id="dtrOvAmt" type="number" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Reason (required)</label>
+        <input id="dtrOvReason" type="text" placeholder="Enter reason" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
+      <div id="dtrOvErr" style="color:#e53935;font-size:12px;min-height:16px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="_dtrCloseModal()" style="padding:10px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:13px;cursor:pointer;color:var(--text)">Cancel</button>
+        <button onclick="_dtrSaveOverride(${staffId})" style="padding:10px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save Override</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+function _dtrOvPick(type,amt,btn){
+  document.querySelectorAll('.dtr-ov-btn').forEach(b=>{b.style.background='transparent';b.style.borderColor='var(--border)';b.style.color='var(--text)';});
+  btn.style.background='var(--primary)';btn.style.color='#fff';btn.style.borderColor='transparent';
+  const wrap=document.getElementById('dtrOvCustomWrap');
+  if(type==='custom'){wrap.style.display='block';_dtrOvAmt=null;}
+  else{wrap.style.display='none';_dtrOvAmt=amt;}
+}
+
+async function _dtrSaveOverride(staffId){
+  const reason=document.getElementById('dtrOvReason').value.trim();
+  const errEl=document.getElementById('dtrOvErr');
+  if(!reason){errEl.textContent='Reason is required.';return}
+  let amt=_dtrOvAmt;
+  if(amt===null){const ci=document.getElementById('dtrOvAmt');amt=ci?parseFloat(ci.value)||0:null;}
+  if(amt===null||amt===undefined){errEl.textContent='Select an override type.';return}
+  const{data:existing}=await sb.from('dtr_salary_records').select('*').eq('staff_id',staffId).eq('date',_dtrLogDate).maybeSingle();
+  const row={override_amount:amt,override_reason:reason,gross_pay:amt};
+  if(existing){
+    await sb.from('dtr_salary_records').update(row).eq('id',existing.id);
+    await sb.from('dtr_audit_log').insert({admin_id:currentUser?.id,action:'override_pay',target_staff_id:staffId,old_value:JSON.stringify({gross_pay:existing.gross_pay}),new_value:JSON.stringify({gross_pay:amt}),reason,timestamp:new Date().toISOString()});
+  } else {
+    const{data:sf}=await sb.from('dtr_staff').select('daily_rate').eq('id',staffId).single();
+    await sb.from('dtr_salary_records').insert({staff_id:staffId,date:_dtrLogDate,daily_rate_snapshot:sf?.daily_rate||0,base_pay:sf?.daily_rate||0,...row});
+  }
+  _dtrCloseModal();_dtrSwitch('log');
+}
+
+async function _dtrTagOT(staffId){
+  const hrs=prompt('Enter OT hours worked (e.g. 1.5):');
+  if(!hrs)return;
+  const otHours=parseFloat(hrs)||0;
+  const{data:sf}=await sb.from('dtr_staff').select('daily_rate,dtr_shifts(total_hours)').eq('id',staffId).single();
+  const shiftHrs=sf?.dtr_shifts?.total_hours||8;
+  const otPay=otHours*(Number(sf?.daily_rate||0)/shiftHrs)*1.25;
+  const{data:sal}=await sb.from('dtr_salary_records').select('*').eq('staff_id',staffId).eq('date',_dtrLogDate).maybeSingle();
+  const basePay=Number(sal?.base_pay||sf?.daily_rate||0);
+  if(sal){await sb.from('dtr_salary_records').update({ot_hours:otHours,ot_pay:otPay,gross_pay:basePay+otPay}).eq('id',sal.id);}
+  else{await sb.from('dtr_salary_records').insert({staff_id:staffId,date:_dtrLogDate,daily_rate_snapshot:sf?.daily_rate,base_pay:basePay,ot_hours:otHours,ot_pay:otPay,gross_pay:basePay+otPay});}
+  await sb.from('dtr_logs').update({status:'ot'}).eq('staff_id',staffId).eq('date',_dtrLogDate);
+  _dtrSwitch('log');
+}
+
+function _dtrExportLogCSV(){
+  const rows=[['Staff','Shift','Time In','Time Out','Hours','Status','Daily Rate','Pay']];
+  document.querySelectorAll('#dtrContent tbody tr').forEach(tr=>{
+    const cells=[...tr.querySelectorAll('td')].map(td=>td.firstChild?.textContent?.trim()||td.textContent.trim());
+    if(cells.length>=8)rows.push(cells.slice(0,8));
+  });
+  const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='dtr_log_'+_dtrLogDate+'.csv';a.click();
+}
+
+// ── SALARY COMPUTATION ────────────────────────────────────────────────────────
+async function _dtrRenderSalary(el){
+  el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>`;
+  const{data:staff}=await sb.from('dtr_staff').select('id,name,daily_rate').eq('is_active',true).order('name');
+  if(!_dtrSalStaff&&staff?.length)_dtrSalStaff=staff[0].id;
+  let records=[];
+  if(_dtrSalStaff){
+    const{from:pFrom,to:pTo}=_dtrPeriodRange(_dtrSalPeriod,_dtrSalDate);
+    const{data}=await sb.from('dtr_salary_records').select('*').eq('staff_id',_dtrSalStaff).gte('date',pFrom).lte('date',pTo).order('date');
+    records=data||[];
+  }
+  const totalBase=records.reduce((a,r)=>a+Number(r.base_pay||0),0);
+  const totalOT=records.reduce((a,r)=>a+Number(r.ot_pay||0),0);
+  const totalOverrideAdj=records.filter(r=>r.override_amount!=null).reduce((a,r)=>a+Number(r.override_amount||0)-Number(r.base_pay||0),0);
+  const totalGross=records.reduce((a,r)=>a+Number(r.gross_pay||0),0);
+  const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2});
+  const{from:pFrom,to:pTo}=_dtrPeriodRange(_dtrSalPeriod,_dtrSalDate);
+  el.innerHTML=`<div style="padding:16px">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:14px">Salary Computation</div>
+    <div class="dtr-filter-row" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <select onchange="_dtrSalStaff=this.value;_dtrSwitch('salary')" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text)">
+        ${(staff||[]).map(s=>`<option value="${s.id}" ${s.id==_dtrSalStaff?'selected':''}>${s.name}</option>`).join('')}
+      </select>
+      <select onchange="_dtrSalPeriod=this.value;_dtrSwitch('salary')" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text)">
+        <option value="weekly" ${_dtrSalPeriod==='weekly'?'selected':''}>Weekly</option>
+        <option value="semi-monthly" ${_dtrSalPeriod==='semi-monthly'?'selected':''}>Semi-Monthly</option>
+        <option value="monthly" ${_dtrSalPeriod==='monthly'?'selected':''}>Monthly</option>
+      </select>
+      <input type="date" value="${_dtrSalDate}" max="${_dtrToday()}" onchange="_dtrSalDate=this.value;_dtrSwitch('salary')" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text)">
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Period: ${pFrom} to ${pTo}</div>
+    <div class="dtr-stat-grid-4" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+      ${[['Base Pay',totalBase,'var(--primary)'],['OT Pay',totalOT,'#8b5cf6'],['Override Adj',totalOverrideAdj,totalOverrideAdj<0?'#e53935':'#f59e0b'],['Gross Pay',totalGross,'#0ea5e9']].map(([l,v,c])=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 10px;text-align:center"><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div><div style="font-size:16px;font-weight:800;color:${c}">${fmt(v)}</div></div>`).join('')}
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:var(--surface);border-bottom:2px solid var(--border)">
+          ${['Date','Rate','Base','OT hrs','OT Pay','Override','Gross'].map(h=>`<th style="padding:9px 10px;text-align:${h==='Date'?'left':'right'};color:var(--muted);font-weight:600;white-space:nowrap">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${!records.length?`<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--muted)">No records for this period.</td></tr>`:
+          records.map(r=>`<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:9px 10px;color:var(--text)">${r.date}</td>
+            <td style="padding:9px 10px;text-align:right;color:var(--muted);font-size:11px">${fmt(r.daily_rate_snapshot||0)}</td>
+            <td style="padding:9px 10px;text-align:right;color:var(--text)">${fmt(r.base_pay||0)}</td>
+            <td style="padding:9px 10px;text-align:right;color:${r.ot_hours?'#8b5cf6':'var(--muted)'}">${r.ot_hours||'—'}</td>
+            <td style="padding:9px 10px;text-align:right;color:${r.ot_pay?'#8b5cf6':'var(--muted)'}">${r.ot_pay?fmt(r.ot_pay):'—'}</td>
+            <td style="padding:9px 10px;text-align:right">${r.override_amount!=null?`<span style="color:#f59e0b;font-weight:600">${fmt(r.override_amount)}</span><div style="font-size:10px;color:var(--muted)">${r.override_reason||''}</div>`:'—'}</td>
+            <td style="padding:9px 10px;text-align:right;font-weight:700;color:var(--primary)">${fmt(r.gross_pay||0)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr style="background:var(--surface);border-top:2px solid var(--border)">
+          <td colspan="2" style="padding:9px 10px;font-weight:700;color:var(--text)">TOTAL</td>
+          <td style="padding:9px 10px;text-align:right;font-weight:700;color:var(--text)">${fmt(totalBase)}</td>
+          <td></td>
+          <td style="padding:9px 10px;text-align:right;font-weight:700;color:#8b5cf6">${fmt(totalOT)}</td>
+          <td></td>
+          <td style="padding:9px 10px;text-align:right;font-weight:800;color:var(--primary);font-size:15px">${fmt(totalGross)}</td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <div style="margin-top:12px"><button onclick="_dtrExportSalCSV()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">📥 Export CSV</button></div>
+  </div>`;
+}
+
+function _dtrPeriodRange(period,dateStr){
+  const d=new Date(dateStr);let from,to;
+  if(period==='weekly'){const day=d.getDay();const diff=d.getDate()-day+(day===0?-6:1);const mon=new Date(d);mon.setDate(diff);const sun=new Date(mon);sun.setDate(mon.getDate()+6);from=mon.toISOString().slice(0,10);to=sun.toISOString().slice(0,10);}
+  else if(period==='semi-monthly'){const m=d.getMonth(),y=d.getFullYear(),dy=d.getDate();if(dy<=15){from=`${y}-${String(m+1).padStart(2,'0')}-01`;to=`${y}-${String(m+1).padStart(2,'0')}-15`;}else{const last=new Date(y,m+1,0).getDate();from=`${y}-${String(m+1).padStart(2,'0')}-16`;to=`${y}-${String(m+1).padStart(2,'0')}-${last}`;}}
+  else{const m=d.getMonth(),y=d.getFullYear(),last=new Date(y,m+1,0).getDate();from=`${y}-${String(m+1).padStart(2,'0')}-01`;to=`${y}-${String(m+1).padStart(2,'0')}-${last}`;}
+  return{from,to};
+}
+
+function _dtrExportSalCSV(){
+  const rows=[['Date','Daily Rate','Base Pay','OT Hours','OT Pay','Override','Gross Pay']];
+  document.querySelectorAll('#dtrContent tbody tr').forEach(tr=>{const cells=[...tr.querySelectorAll('td')].map(td=>td.firstChild?.textContent?.trim()||td.textContent.trim());if(cells.length>=7)rows.push(cells.slice(0,7));});
+  const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='salary_'+_dtrSalStaff+'_'+_dtrSalPeriod+'_'+_dtrSalDate+'.csv';a.click();
+}
+
+// ── REPORTS ──────────────────────────────────────────────────────────────────
+async function _dtrRenderReports(el){
+  el.innerHTML=`<div style="padding:16px;color:var(--muted);font-size:13px">Loading…</div>`;
+  const[staffRes,salRes,logsRes]=await Promise.all([
+    sb.from('dtr_staff').select('id,name').eq('is_active',true).order('name'),
+    sb.from('dtr_salary_records').select('*').gte('date',_dtrRptMonth+'-01').lte('date',_dtrRptMonth+'-31'),
+    sb.from('dtr_logs').select('staff_id,status').gte('date',_dtrRptMonth+'-01').lte('date',_dtrRptMonth+'-31')
+  ]);
+  const staff=staffRes.data||[];
+  const statsMap={};staff.forEach(s=>{statsMap[s.id]={name:s.name,present:0,absent:0,otHours:0,overrideDays:0,grossPay:0};});
+  (logsRes.data||[]).forEach(l=>{if(!statsMap[l.staff_id])return;if(l.status==='absent')statsMap[l.staff_id].absent++;else statsMap[l.staff_id].present++;});
+  (salRes.data||[]).forEach(r=>{if(!statsMap[r.staff_id])return;statsMap[r.staff_id].grossPay+=Number(r.gross_pay||0);statsMap[r.staff_id].otHours+=Number(r.ot_hours||0);if(r.override_amount!=null)statsMap[r.staff_id].overrideDays++;});
+  const rows=Object.values(statsMap);
+  const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2});
+  el.innerHTML=`<div style="padding:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:700;color:var(--text)">Monthly Report</div>
+      <div class="dtr-filter-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="month" value="${_dtrRptMonth}" max="${_dtrToday().slice(0,7)}" onchange="_dtrRptMonth=this.value;_dtrSwitch('reports')" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text)">
+        <button onclick="_dtrExportRptCSV()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;font-size:12px;cursor:pointer;color:var(--text)">📥 Export CSV</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:var(--surface);border-bottom:2px solid var(--border)">
+          ${['Staff','Present','Absent','OT Hrs','Overrides','Gross Pay'].map(h=>`<th style="padding:10px 12px;text-align:${h==='Gross Pay'?'right':'left'};color:var(--muted);font-weight:600">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${!rows.length?`<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted)">No data for this month.</td></tr>`:
+          rows.map(r=>`<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:10px 12px;font-weight:600;color:var(--text)">${r.name}</td>
+            <td style="padding:10px 12px;color:#2d6a4f;font-weight:600">${r.present}</td>
+            <td style="padding:10px 12px;color:#6b7280">${r.absent}</td>
+            <td style="padding:10px 12px;color:#8b5cf6">${r.otHours||'—'}</td>
+            <td style="padding:10px 12px;color:#f59e0b">${r.overrideDays||'—'}</td>
+            <td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--primary)">${fmt(r.grossPay)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function _dtrExportRptCSV(){
+  const rows=[['Staff','Present','Absent','OT Hours','Overrides','Gross Pay']];
+  document.querySelectorAll('#dtrContent tbody tr').forEach(tr=>{const cells=[...tr.querySelectorAll('td')].map(td=>td.textContent.trim());if(cells.length>=6)rows.push(cells.slice(0,6));});
+  const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='dtr_report_'+_dtrRptMonth+'.csv';a.click();
+}
+
+// ── DTR MODAL ─────────────────────────────────────────────────────────────────
+function _dtrShowModal(html){
+  let m=document.getElementById('dtrModal');
+  if(!m){m=document.createElement('div');m.id='dtrModal';m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2100;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box';m.addEventListener('click',e=>{if(e.target===m)_dtrCloseModal();});document.body.appendChild(m);}
+  m.innerHTML=html;m.style.display='flex';
+}
+function _dtrCloseModal(){const m=document.getElementById('dtrModal');if(m)m.style.display='none';}
 
 const _BIBLE_VERSES=[
   {text:"I can do all this through him who gives me strength.",ref:"Philippians 4:13"},
@@ -3839,7 +4513,7 @@ function showTab(tab,el){
   if(sbBtn)sbBtn.classList.add('active');
 
   // Update page title bar text
-  const tabNames={home:'OLI Home',pos:'Dashboard',history:'Sales Transaction',reports:'Reports',manage:'Products / SKUs',refund:'Refunds',cashDrawer:'Cash Drawer',staff:'Users'};
+  const tabNames={home:'OLI Home',pos:'Dashboard',history:'Sales Transaction',reports:'Reports',manage:'Products / SKUs',refund:'Refunds',cashDrawer:'Cash Drawer',dtr:'DTR',staff:'Users'};
   const ptbEl=document.getElementById('pageTitleName');
   if(ptbEl)ptbEl.textContent=tabNames[tab]||tab;
 
@@ -3865,6 +4539,7 @@ function showTab(tab,el){
       refund:()=>{document.getElementById('refundPanel').classList.add('m-active');requestAnimationFrame(renderRefundPanel)},
       staff:()=>{document.getElementById('staffPanel').classList.add('m-active');requestAnimationFrame(loadStaff)},
       cashDrawer:()=>{document.getElementById('cashDrawerPanel').classList.add('m-active');requestAnimationFrame(renderCashDrawer)},
+      dtr:()=>{document.getElementById('dtrPanel').classList.add('m-active');requestAnimationFrame(renderDTR)},
     };
     if(map[tab]){
       map[tab]();
@@ -3874,7 +4549,7 @@ function showTab(tab,el){
       updateSwipeDots();
       // Apply directional slide if triggered by a swipe gesture
       if(swipeAnimDir){
-        const pIds={pos:'posPanel',history:'historyPanel',reports:'reportsPanel',manage:'managePanel',refund:'refundPanel',staff:'staffPanel',cashDrawer:'cashDrawerPanel'};
+        const pIds={pos:'posPanel',history:'historyPanel',reports:'reportsPanel',manage:'managePanel',refund:'refundPanel',staff:'staffPanel',cashDrawer:'cashDrawerPanel',dtr:'dtrPanel'};
         const pEl=document.getElementById(pIds[tab]);
         if(pEl){pEl.classList.add('swipe-'+swipeAnimDir);setTimeout(()=>pEl.classList.remove('swipe-right','swipe-left'),280);}
         swipeAnimDir=null;
@@ -3886,7 +4561,7 @@ function showTab(tab,el){
 
     // Step 1: forcibly hide ALL panels
     ['posPanel','cartPanel'].forEach(id=>{const p=document.getElementById(id);if(p)p.style.display='none'});
-    ['historyPanel','reportsPanel','managePanel','refundPanel','staffPanel','cashDrawerPanel','homePanel'].forEach(id=>{
+    ['historyPanel','reportsPanel','managePanel','refundPanel','staffPanel','cashDrawerPanel','dtrPanel','homePanel'].forEach(id=>{
       const p=document.getElementById(id);if(p)p.classList.remove('visible');
     });
 
@@ -3908,6 +4583,7 @@ function showTab(tab,el){
         refund:()=>{document.getElementById('refundPanel').classList.add('visible');requestAnimationFrame(renderRefundPanel)},
         staff:()=>{document.getElementById('staffPanel').classList.add('visible');requestAnimationFrame(loadStaff)},
         cashDrawer:()=>{document.getElementById('cashDrawerPanel').classList.add('visible');requestAnimationFrame(renderCashDrawer)},
+        dtr:()=>{document.getElementById('dtrPanel').classList.add('visible');requestAnimationFrame(renderDTR)},
       };
       if(map[tab])map[tab]();
     }
@@ -3967,9 +4643,9 @@ let _swipeTouchX=0,_swipeTouchY=0;
 
 function initMobileSwipe(){
   const r=currentUser?.role||'cashier';
-  if(r==='admin')mobileSwipeOrder=['pos','history','reports','manage','refund','cashDrawer','staff'];
-  else if(r==='manager')mobileSwipeOrder=['pos','history','cashDrawer','reports'];
-  else mobileSwipeOrder=['pos','history','cashDrawer'];
+  if(r==='admin')mobileSwipeOrder=['pos','history','reports','manage','refund','cashDrawer','dtr','staff'];
+  else if(r==='manager')mobileSwipeOrder=['pos','history','cashDrawer','dtr','reports'];
+  else mobileSwipeOrder=['pos','history','cashDrawer','dtr'];
   currentSwipeIndex=0;
   updateSwipeDots();
 }
