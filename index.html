@@ -1305,6 +1305,11 @@ function showLoginForm(){
   document.getElementById('setupForm').style.display='none';
   const sel=document.getElementById('loginNameSel');
   sel.innerHTML=`<option value="">Select your name...</option>`+staffList.map(s=>`<option value="${s.id}">${s.name} (${s.role})</option>`).join('');
+  // Always reset error + PIN so previous session state doesn't bleed through
+  const errEl=document.getElementById('loginError');
+  if(errEl)errEl.textContent='';
+  const pinEl=document.getElementById('loginPin');
+  if(pinEl)pinEl.value='';
 }
 
 async function doLogin(){
@@ -1353,7 +1358,7 @@ function doLogout(){
   localStorage.removeItem('oli_session');
   currentUser=null;
   cart={};
-  _cdFrom='';_cdTo='';
+  _cdFrom='';_cdTo='';_cdCache=null;
   // Reset PIN field so it's empty for next login
   const pinEl=document.getElementById('loginPin');
   if(pinEl)pinEl.value='';
@@ -2204,6 +2209,7 @@ function _buildHomeChart(){
 // ─── Cash Drawer ─────────────────────────────────────────────────────────────
 let _cdExpFilter='all'; // 'all'|'cash'|'non-cash'
 let _cdFrom='',_cdTo=''; // date range (YYYY-MM-DD), defaults to today
+let _cdCache=null; // last fetched payload — used for instant re-render on tab revisit
 
 function _cdDateKey(){return new Date().toISOString().slice(0,10)}
 
@@ -2362,7 +2368,27 @@ async function renderCashDrawer(){
   const panel=document.getElementById('cashDrawerPanel');
   if(!panel)return;
   _cdInitDates();
-  panel.innerHTML=`<div style="padding:20px 28px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px"><div style="color:var(--muted);font-size:13px">Loading…</div></div>`;
+
+  // If we have cached data for the same date range, render it instantly then refresh silently
+  if(_cdCache&&_cdCache.from===_cdFrom&&_cdCache.to===_cdTo){
+    _cdPaint(panel,_cdCache.day,_cdCache.entries,_cdCache.salesData);
+  } else {
+    // First load for this date range — show skeleton while fetching
+    panel.innerHTML=`<style>@keyframes cdShimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}.cd-skel{border-radius:10px;background:linear-gradient(90deg,var(--border) 25%,var(--surface) 50%,var(--border) 75%);background-size:800px 100%;animation:cdShimmer 1.4s infinite linear}</style>
+    <div class="cd-wrap" style="padding:20px 28px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px">
+      <div class="cd-skel" style="height:18px;width:180px"></div>
+      <div class="cd-skel" style="height:72px;border-radius:12px"></div>
+      <div class="cd-hero cd-skel" style="height:110px;border-radius:12px;background:linear-gradient(135deg,#1a3a2a,#2d6a4f)!important;animation:none"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div class="cd-skel" style="height:72px"></div><div class="cd-skel" style="height:72px"></div><div class="cd-skel" style="height:72px"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="cd-skel" style="height:72px"></div><div class="cd-skel" style="height:72px"></div>
+        <div class="cd-skel" style="height:72px;grid-column:span 2"></div>
+        <div class="cd-skel" style="height:72px"></div><div class="cd-skel" style="height:72px"></div>
+      </div>
+    </div>`;
+  }
 
   // Always query directly from Supabase using the selected date range
   const [{day,entries}, salesRes]=await Promise.all([
@@ -2371,28 +2397,29 @@ async function renderCashDrawer(){
       .gte('created_at', _cdFrom+'T00:00:00')
       .lte('created_at', _cdTo+'T23:59:59')
   ]);
+  // Enrich sales data: fetch original payment method for out-of-range refunds
   const allSalesData=salesRes.data||[];
-  const normalSales=allSalesData.filter(s=>s.payment!=='refund');
-  const refundRecords=allSalesData.filter(s=>s.payment==='refund'&&s.refund_of!=null);
-  // Build id→payment map from normal sales in range
-  const _salePayMap={};
-  normalSales.forEach(s=>{_salePayMap[s.id]=s.payment.toLowerCase();});
-  // For refunds whose original sale is outside the date range, fetch their payment method
-  const missingIds=refundRecords.map(r=>r.refund_of).filter(id=>!_salePayMap[id]);
+  const _normalIds={};allSalesData.filter(s=>s.payment!=='refund').forEach(s=>{_normalIds[s.id]=true;});
+  const missingIds=allSalesData.filter(s=>s.payment==='refund'&&s.refund_of!=null&&!_normalIds[s.refund_of]).map(r=>r.refund_of);
   if(missingIds.length>0){
     const{data:origData}=await sb.from('sales').select('id,payment').in('id',missingIds);
-    (origData||[]).forEach(s=>{_salePayMap[s.id]=s.payment.toLowerCase();});
+    // Merge original sale records so _cdPaint can look them up
+    (origData||[]).forEach(s=>allSalesData.push(s));
   }
-  // Compute refunded amounts per payment method
-  const _refundByPay={};
-  refundRecords.forEach(r=>{
-    const op=_salePayMap[r.refund_of];
-    if(op)_refundByPay[op]=(_refundByPay[op]||0)+Math.abs(Number(r.total));
-  });
-  const cashSales=normalSales.filter(s=>s.payment.toLowerCase()==='cash').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['cash']||0);
-  const gcashSales=normalSales.filter(s=>s.payment.toLowerCase()==='gcash').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['gcash']||0);
-  const cardSales=normalSales.filter(s=>s.payment.toLowerCase()==='card').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['card']||0);
-  const bankSales=normalSales.filter(s=>s.payment.toLowerCase()==='bank transfer').reduce((a,s)=>a+Number(s.total),0)-(_refundByPay['bank transfer']||0);
+  // Save to cache so revisits render instantly, then paint
+  _cdCache={from:_cdFrom,to:_cdTo,day,entries,salesData:allSalesData};
+  _cdPaint(panel,day,entries,allSalesData);
+}
+
+function _cdPaint(panel,day,entries,allSalesData){
+  const normalSales=(allSalesData||[]).filter(s=>s.payment!=='refund');
+  const refundRecords=(allSalesData||[]).filter(s=>s.payment==='refund'&&s.refund_of!=null);
+  const _pm={};normalSales.forEach(s=>{_pm[s.id]=s.payment.toLowerCase();});
+  const _rb={};refundRecords.forEach(r=>{const op=_pm[r.refund_of];if(op)_rb[op]=(_rb[op]||0)+Math.abs(Number(r.total));});
+  const cashSales=normalSales.filter(s=>s.payment.toLowerCase()==='cash').reduce((a,s)=>a+Number(s.total),0)-(_rb['cash']||0);
+  const gcashSales=normalSales.filter(s=>s.payment.toLowerCase()==='gcash').reduce((a,s)=>a+Number(s.total),0)-(_rb['gcash']||0);
+  const cardSales=normalSales.filter(s=>s.payment.toLowerCase()==='card').reduce((a,s)=>a+Number(s.total),0)-(_rb['card']||0);
+  const bankSales=normalSales.filter(s=>s.payment.toLowerCase()==='bank transfer').reduce((a,s)=>a+Number(s.total),0)-(_rb['bank transfer']||0);
   const cashAdded=entries.filter(e=>e.entry_type==='cash_added').reduce((a,e)=>a+Number(e.amount),0);
   const cashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='cash').reduce((a,e)=>a+Number(e.amount),0);
   const nonCashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='non-cash').reduce((a,e)=>a+Number(e.amount),0);
