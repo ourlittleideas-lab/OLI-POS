@@ -396,6 +396,12 @@ tbody tr:hover td{background:var(--bg)}
 .mobile-bottom-nav{display:none}
 .swipe-dots-bar{display:none}
 
+/* ── OLI Home Chart Buttons ── */
+.hperiod-btn{padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);cursor:pointer;font-size:12px;font-weight:500;color:rgba(255,255,255,.65);transition:all .15s}
+.hperiod-btn[data-active]{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.35);color:#fff}
+.huser-btn{padding:4px 13px;border-radius:20px;border:1px solid var(--border);background:transparent;cursor:pointer;font-size:12px;font-weight:500;color:var(--muted);transition:all .15s}
+.huser-btn[data-active]{background:var(--primary);color:#fff;border-color:transparent}
+
 /* ── Desktop Floating Sidebar & Page Title Bar ── */
 /* Hidden everywhere by default; media query reveals on desktop */
 .desktop-sidebar{display:none}
@@ -2024,7 +2030,218 @@ function getPeriodDates(period){
   return{from,to};
 }
 
-// ─── OLI Home Summary Page ───────────────────────────────────────────────────
+// ─── OLI Home: Sales Chart ───────────────────────────────────────────────────
+let _homeChart=null,_homePeriod='day',_homeUser='all',_homePayment='all';
+const _H_PAY=['cash','gcash','card','bank transfer'];
+const _H_PAY_LABEL={'cash':'Cash','gcash':'GCash','card':'Card','bank transfer':'Bank'};
+const _H_PAY_COLOR={'cash':'#2d6a4f','gcash':'#52b788','card':'#95d5b2','bank transfer':'#74c69d'};
+
+function setHomePeriod(p,btn){
+  document.querySelectorAll('.hperiod-btn').forEach(b=>b.removeAttribute('data-active'));
+  if(btn)btn.setAttribute('data-active','1');
+  _homePeriod=p;_buildHomeChart();
+}
+function setHomeUser(u,btn){
+  document.querySelectorAll('.huser-btn').forEach(b=>b.removeAttribute('data-active'));
+  if(btn)btn.setAttribute('data-active','1');
+  _homeUser=u;_buildHomeChart();
+}
+function setHomePayment(m,btn){
+  document.querySelectorAll('.hpay-btn').forEach(b=>b.removeAttribute('data-active'));
+  if(btn)btn.setAttribute('data-active','1');
+  _homePayment=m;_buildHomeChart();
+}
+
+function _homeGetData(){
+  const now=new Date();
+  const year=now.getFullYear();
+  const todayStr=now.toISOString().slice(0,10);
+  // base pool: current year, no refunds, optionally filtered by user & payment
+  let pool=sales.filter(s=>s.payment!=='refund'&&s.date&&new Date(s.date).getFullYear()===year);
+  if(_homeUser!=='all') pool=pool.filter(s=>s.soldBy&&s.soldBy.toLowerCase()===_homeUser);
+  if(_homePayment!=='all') pool=pool.filter(s=>s.payment.toLowerCase()===_homePayment);
+
+  // mode logic: what do the grouped bars represent?
+  // user=all & pay=all → group by Bazaar/Store
+  // user=all & pay=specific → group by Bazaar/Store (filtered)
+  // user=specific & pay=all → group by payment method
+  // user=specific & pay=specific → single total bar
+  const mode = _homeUser==='all' ? 'users' : (_homePayment==='all' ? 'methods' : 'single');
+
+  // time-slot key functions
+  let labels, slotFn;
+  if(_homePeriod==='day'){
+    labels=[];for(let h=7;h<=22;h++)labels.push(h<12?`${h}am`:h===12?'12pm':`${h-12}pm`);
+    slotFn=(s,i)=>s.date.slice(0,10)===todayStr&&new Date(s.date).getHours()===i+7;
+  } else if(_homePeriod==='week'){
+    const dow=now.getDay();
+    const mon=new Date(now);mon.setDate(now.getDate()-(dow===0?6:dow-1));
+    labels=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const ds=i=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d.toISOString().slice(0,10)};
+    slotFn=(s,i)=>s.date.slice(0,10)===ds(i);
+  } else if(_homePeriod==='month'){
+    const dim=new Date(year,now.getMonth()+1,0).getDate();
+    labels=Array.from({length:dim},(_,i)=>String(i+1));
+    const mStr=String(now.getMonth()+1).padStart(2,'0');
+    const ds=i=>`${year}-${mStr}-${String(i+1).padStart(2,'0')}`;
+    slotFn=(s,i)=>s.date.slice(0,10)===ds(i);
+  } else {
+    labels=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    slotFn=(s,i)=>new Date(s.date).getMonth()===i;
+  }
+
+  const sum=(arr,i)=>arr.filter(s=>slotFn(s,i)).reduce((a,s)=>a+s.total,0);
+
+  if(mode==='users'){
+    const fullPool=sales.filter(s=>s.payment!=='refund'&&s.date&&new Date(s.date).getFullYear()===year&&(_homePayment==='all'||s.payment.toLowerCase()===_homePayment));
+    const baz=labels.map((_,i)=>fullPool.filter(s=>s.soldBy&&s.soldBy.toLowerCase()==='bazaar').filter(s=>slotFn(s,i)).reduce((a,s)=>a+s.total,0));
+    const sto=labels.map((_,i)=>fullPool.filter(s=>s.soldBy&&s.soldBy.toLowerCase()==='store').filter(s=>slotFn(s,i)).reduce((a,s)=>a+s.total,0));
+    return{labels,mode,baz,sto};
+  }
+  if(mode==='methods'){
+    const data={};
+    _H_PAY.forEach(m=>{data[m]=labels.map((_,i)=>pool.filter(s=>s.payment.toLowerCase()===m&&slotFn(s,i)).reduce((a,s)=>a+s.total,0))});
+    return{labels,mode,data};
+  }
+  // single
+  return{labels,mode,totals:labels.map((_,i)=>sum(pool,i))};
+}
+
+function _buildHomeChart(){
+  const canvas=document.getElementById('homeChartCanvas');
+  if(!canvas)return;
+  const d=_homeGetData();
+  const sub=document.getElementById('homeChartSub');
+  const leg=document.getElementById('homeChartLegend');
+  let datasets,subText,legHtml;
+
+  if(d.mode==='users'){
+    const payLabel=_homePayment==='all'?'all methods':_H_PAY_LABEL[_homePayment]||_homePayment;
+    datasets=[
+      {label:'Bazaar',data:d.baz,backgroundColor:'#2d6a4f',borderRadius:3},
+      {label:'Store', data:d.sto,backgroundColor:'#95d5b2',borderRadius:3}
+    ];
+    subText=`Bazaar vs Store · ${payLabel}`;
+    legHtml=`<span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)"><span style="width:10px;height:10px;border-radius:2px;background:#2d6a4f;flex-shrink:0"></span>Bazaar</span><span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)"><span style="width:10px;height:10px;border-radius:2px;background:#95d5b2;flex-shrink:0"></span>Store</span>`;
+  } else if(d.mode==='methods'){
+    datasets=_H_PAY.map(m=>({label:_H_PAY_LABEL[m],data:d.data[m],backgroundColor:_H_PAY_COLOR[m],borderRadius:3}));
+    subText=(_homeUser==='bazaar'?'Bazaar':'Store')+' · by payment method';
+    legHtml=_H_PAY.map(m=>`<span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)"><span style="width:10px;height:10px;border-radius:2px;background:${_H_PAY_COLOR[m]};flex-shrink:0"></span>${_H_PAY_LABEL[m]}</span>`).join('');
+  } else {
+    const userLabel=_homeUser==='bazaar'?'Bazaar':'Store';
+    const payLabel=_H_PAY_LABEL[_homePayment]||_homePayment;
+    datasets=[{label:`${userLabel} · ${payLabel}`,data:d.totals,backgroundColor:'#2d6a4f',borderRadius:3}];
+    subText=`${userLabel} · ${payLabel} only`;
+    legHtml=`<span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)"><span style="width:10px;height:10px;border-radius:2px;background:#2d6a4f;flex-shrink:0"></span>${userLabel} · ${payLabel}</span>`;
+  }
+
+  if(sub)sub.textContent=subText;
+  if(leg)leg.innerHTML=legHtml;
+  if(_homeChart){_homeChart.destroy();_homeChart=null}
+  _homeChart=new Chart(canvas,{
+    type:'bar',data:{labels:d.labels,datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ₱${ctx.parsed.y.toLocaleString()}`}}},
+      scales:{
+        x:{grid:{display:false},ticks:{font:{size:11},color:'#888',maxRotation:_homePeriod==='month'?45:0,autoSkip:_homePeriod==='month'}},
+        y:{grid:{color:'rgba(0,0,0,0.06)'},ticks:{font:{size:11},color:'#888',callback:v=>'₱'+v.toLocaleString()}}
+      }
+    }
+  });
+  // Stat cards — respect current period, user, and payment filters
+  const _now=new Date(),_yr=_now.getFullYear(),_todayS=_now.toISOString().slice(0,10);
+  const _dow=_now.getDay(),_mon=new Date(_now);_mon.setDate(_now.getDate()-(_dow===0?6:_dow-1));
+  const _wkS=_mon.toISOString().slice(0,10);
+  const _wkE=new Date(_mon);_wkE.setDate(_mon.getDate()+6);const _wkES=_wkE.toISOString().slice(0,10);
+  const periodLabel={day:'Today',week:'This Week',month:'This Month',year:'This Year'}[_homePeriod];
+  let statPool=sales.filter(s=>s.payment!=='refund'&&s.date&&new Date(s.date).getFullYear()===_yr);
+  if(_homePeriod==='day') statPool=statPool.filter(s=>s.date.slice(0,10)===_todayS);
+  else if(_homePeriod==='week') statPool=statPool.filter(s=>s.date.slice(0,10)>=_wkS&&s.date.slice(0,10)<=_wkES);
+  else if(_homePeriod==='month') statPool=statPool.filter(s=>new Date(s.date).getMonth()===_now.getMonth());
+  if(_homePayment!=='all') statPool=statPool.filter(s=>s.payment.toLowerCase()===_homePayment);
+  const _baz=statPool.filter(s=>s.soldBy&&s.soldBy.toLowerCase()==='bazaar');
+  const _sto=statPool.filter(s=>s.soldBy&&s.soldBy.toLowerCase()==='store');
+  const bazTotal=_baz.reduce((a,s)=>a+s.total,0);
+  const stoTotal=_sto.reduce((a,s)=>a+s.total,0);
+  const showBaz=_homeUser!=='store',showSto=_homeUser!=='bazaar';
+  const grandTotal=(showBaz?bazTotal:0)+(showSto?stoTotal:0);
+  const methodSrc=_homeUser==='all'?statPool:_homeUser==='bazaar'?_baz:_sto;
+  const _payT={};methodSrc.forEach(s=>{const m=s.payment.toLowerCase();_payT[m]=(_payT[m]||0)+s.total});
+  const topPay=Object.entries(_payT).sort((a,b)=>b[1]-a[1])[0];
+  const payLabel=_homePayment==='all'?'':`· ${_H_PAY_LABEL[_homePayment]||_homePayment}`;
+  const userLabel=_homeUser==='all'?'All Users':_homeUser==='bazaar'?'Bazaar':'Store';
+  const g=id=>document.getElementById(id);
+  if(g('hStatTotalLabel'))g('hStatTotalLabel').textContent=`${userLabel} ${payLabel} · ${periodLabel}`;
+  if(g('hStatBazaarLabel'))g('hStatBazaarLabel').textContent=`Bazaar ${payLabel} · ${periodLabel}`;
+  if(g('hStatStoreLabel'))g('hStatStoreLabel').textContent=`Store ${payLabel} · ${periodLabel}`;
+  if(g('hStatTopPayLabel'))g('hStatTopPayLabel').textContent=`Top Method · ${periodLabel}`;
+  if(g('hStatTotal'))g('hStatTotal').textContent='₱'+grandTotal.toLocaleString();
+  if(g('hStatBazaar'))g('hStatBazaar').textContent=showBaz?'₱'+bazTotal.toLocaleString():'—';
+  if(g('hStatStore'))g('hStatStore').textContent=showSto?'₱'+stoTotal.toLocaleString():'—';
+  if(g('hStatTopPay'))g('hStatTopPay').textContent=topPay?(_H_PAY_LABEL[topPay[0]]||topPay[0]):'—';
+}
+
+const _BIBLE_VERSES=[
+  {text:"I can do all this through him who gives me strength.",ref:"Philippians 4:13"},
+  {text:"For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.",ref:"Jeremiah 29:11"},
+  {text:"The Lord is my shepherd, I lack nothing.",ref:"Psalm 23:1"},
+  {text:"Trust in the Lord with all your heart and lean not on your own understanding.",ref:"Proverbs 3:5"},
+  {text:"But seek first his kingdom and his righteousness, and all these things will be given to you as well.",ref:"Matthew 6:33"},
+  {text:"Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God.",ref:"Philippians 4:6"},
+  {text:"And we know that in all things God works for the good of those who love him.",ref:"Romans 8:28"},
+  {text:"Be strong and courageous. Do not be afraid; do not be discouraged, for the Lord your God will be with you wherever you go.",ref:"Joshua 1:9"},
+  {text:"Commit to the Lord whatever you do, and he will establish your plans.",ref:"Proverbs 16:3"},
+  {text:"The Lord will fight for you; you need only to be still.",ref:"Exodus 14:14"},
+  {text:"Come to me, all you who are weary and burdened, and I will give you rest.",ref:"Matthew 11:28"},
+  {text:"Even youths grow tired and weary, but those who hope in the Lord will renew their strength.",ref:"Isaiah 40:31"},
+  {text:"This is the day the Lord has made; we will rejoice and be glad in it.",ref:"Psalm 118:24"},
+  {text:"For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.",ref:"John 3:16"},
+  {text:"The Lord your God is with you, the Mighty Warrior who saves. He will take great delight in you.",ref:"Zephaniah 3:17"},
+  {text:"Give thanks to the Lord, for he is good; his love endures forever.",ref:"Psalm 107:1"},
+  {text:"Cast your cares on the Lord and he will sustain you; he will never let the righteous be shaken.",ref:"Psalm 55:22"},
+  {text:"I have told you these things, so that in me you may have peace.",ref:"John 16:33"},
+  {text:"He gives strength to the weary and increases the power of the weak.",ref:"Isaiah 40:29"},
+  {text:"The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you.",ref:"Numbers 6:24-25"},
+  {text:"Delight yourself in the Lord, and he will give you the desires of your heart.",ref:"Psalm 37:4"},
+  {text:"Do not let your hearts be troubled. You believe in God; believe also in me.",ref:"John 14:1"},
+  {text:"For it is by grace you have been saved, through faith — and this is not from yourselves, it is the gift of God.",ref:"Ephesians 2:8"},
+  {text:"The Lord is close to the brokenhearted and saves those who are crushed in spirit.",ref:"Psalm 34:18"},
+  {text:"But those who hope in the Lord will renew their strength. They will soar on wings like eagles.",ref:"Isaiah 40:31"},
+  {text:"With man this is impossible, but with God all things are possible.",ref:"Matthew 19:26"},
+  {text:"Let your light shine before others, that they may see your good deeds and glorify your Father in heaven.",ref:"Matthew 5:16"},
+  {text:"Peace I leave with you; my peace I give you. I do not give to you as the world gives.",ref:"John 14:27"},
+  {text:"In all your ways submit to him, and he will make your paths straight.",ref:"Proverbs 3:6"},
+  {text:"The name of the Lord is a fortified tower; the righteous run to it and are safe.",ref:"Proverbs 18:10"},
+  {text:"Ask and it will be given to you; seek and you will find; knock and the door will be opened to you.",ref:"Matthew 7:7"},
+  {text:"I am the vine; you are the branches. If you remain in me and I in you, you will bear much fruit.",ref:"John 15:5"},
+  {text:"For the Lord God is a sun and shield; the Lord bestows favor and honor.",ref:"Psalm 84:11"},
+  {text:"Blessed are those who hunger and thirst for righteousness, for they will be filled.",ref:"Matthew 5:6"},
+  {text:"God is our refuge and strength, an ever-present help in trouble.",ref:"Psalm 46:1"},
+  {text:"I praise you because I am fearfully and wonderfully made; your works are wonderful.",ref:"Psalm 139:14"},
+  {text:"The heart of man plans his way, but the Lord establishes his steps.",ref:"Proverbs 16:9"},
+  {text:"No weapon forged against you will prevail, and you will refute every tongue that accuses you.",ref:"Isaiah 54:17"},
+  {text:"Do not conform to the pattern of this world, but be transformed by the renewing of your mind.",ref:"Romans 12:2"},
+  {text:"Love is patient, love is kind. It does not envy, it does not boast, it is not proud.",ref:"1 Corinthians 13:4"},
+  {text:"Rejoice always, pray continually, give thanks in all circumstances.",ref:"1 Thessalonians 5:16-18"},
+  {text:"What, then, shall we say in response to these things? If God is for us, who can be against us?",ref:"Romans 8:31"},
+  {text:"The Lord is my light and my salvation — whom shall I fear?",ref:"Psalm 27:1"},
+  {text:"Surely goodness and love will follow me all the days of my life.",ref:"Psalm 23:6"},
+  {text:"Honor the Lord with your wealth, with the firstfruits of all your crops.",ref:"Proverbs 3:9"},
+  {text:"And my God will meet all your needs according to the riches of his glory in Christ Jesus.",ref:"Philippians 4:19"},
+  {text:"Whoever dwells in the shelter of the Most High will rest in the shadow of the Almighty.",ref:"Psalm 91:1"},
+  {text:"The Lord himself goes before you and will be with you; he will never leave you nor forsake you.",ref:"Deuteronomy 31:8"},
+  {text:"Let us not become weary in doing good, for at the proper time we will reap a harvest if we do not give up.",ref:"Galatians 6:9"},
+  {text:"Taste and see that the Lord is good; blessed is the one who takes refuge in him.",ref:"Psalm 34:8"},
+  {text:"Greater love has no one than this: to lay down one's life for one's friends.",ref:"John 15:13"},
+  {text:"Be still, and know that I am God.",ref:"Psalm 46:10"}
+];
+function _getWeekVerse(){
+  const now=new Date(),start=new Date(now.getFullYear(),0,1);
+  const wk=Math.floor((now-start)/(7*24*60*60*1000));
+  return _BIBLE_VERSES[wk%_BIBLE_VERSES.length];
+}
+
 function renderHome(){
   const panel=document.getElementById('homePanel');
   if(!panel)return;
@@ -2035,24 +2252,24 @@ function renderHome(){
   const todayRev=todaySales.reduce((s,x)=>s+x.total,0)-todayRefundTotal;
   const todayTx=todaySales.length;
   const todayItems=todaySales.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
-  // Best seller today
   const skuMap={};
   todaySales.forEach(s=>s.items.forEach(i=>{skuMap[i.name]=(skuMap[i.name]||0)+i.qty}));
   const best=Object.entries(skuMap).sort((a,b)=>b[1]-a[1])[0];
-  // Payment breakdown today
   const payMap={};
   todaySales.forEach(s=>{payMap[s.payment]=(payMap[s.payment]||0)+s.total});
-  // Recent 5 transactions (all sales, newest first)
-  const recent=sales.filter(s=>s.payment!=='refund').slice(0,5);
-  const refundedIds=new Set(sales.filter(r=>r.payment==='refund'&&r.refundOf!=null).map(r=>r.refundOf));
   const dateStr=new Date().toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   panel.innerHTML=`<div style="padding:20px 28px 28px;overflow-y:auto;flex:1;min-height:0;box-sizing:border-box">
   <div style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:500">${dateStr}</div>
   <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;gap:16px">
-    <div style="font-size:32px;line-height:1">🏪</div>
-    <div>
+    <div style="font-size:32px;line-height:1;flex-shrink:0">🏪</div>
+    <div style="flex:1;min-width:0">
       <div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:.3px">Welcome to OLI Home</div>
       <div style="font-size:13px;color:rgba(255,255,255,.65);margin-top:3px">Here's a snapshot of today's performance at a glance.</div>
+    </div>
+    <div style="flex-shrink:0;max-width:340px;border-left:1px solid rgba(255,255,255,.18);padding-left:20px;display:flex;flex-direction:column;gap:6px">
+      <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.8px">✝ Bible Verse of the Week</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.9);line-height:1.55;font-style:italic">"${_getWeekVerse().text}"</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.5);font-weight:600">— ${_getWeekVerse().ref} (NIV)</div>
     </div>
   </div>
   <div class="stats-grid" style="margin-bottom:20px">
@@ -2068,35 +2285,49 @@ function renderHome(){
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
       <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">Payment Methods Today</div>
-      ${Object.entries(payMap).length?Object.entries(payMap).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px">
-        <span style="text-transform:capitalize;color:var(--text)">${k}</span>
-        <span style="font-weight:600;color:var(--primary)">₱${v.toFixed(2)}</span>
-      </div>`).join(''):`<div style="color:var(--muted);font-size:13px">No sales today yet</div>`}
+      ${Object.entries(payMap).length?Object.entries(payMap).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px"><span style="text-transform:capitalize;color:var(--text)">${k}</span><span style="font-weight:600;color:var(--primary)">₱${v.toFixed(2)}</span></div>`).join(''):`<div style="color:var(--muted);font-size:13px">No sales today yet</div>`}
     </div>
   </div>
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Recent Transactions</div>
-    ${recent.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="background:var(--bg)">
-        <th style="padding:9px 16px;text-align:left;font-weight:600;color:var(--muted);font-size:11px;white-space:nowrap">Date & Time</th>
-        <th style="padding:9px 16px;text-align:left;font-weight:600;color:var(--muted);font-size:11px">Cashier</th>
-        <th style="padding:9px 16px;text-align:left;font-weight:600;color:var(--muted);font-size:11px">Payment</th>
-        <th style="padding:9px 16px;text-align:right;font-weight:600;color:var(--muted);font-size:11px">Amount</th>
-      </tr></thead>
-      <tbody>${recent.map(s=>{
-        const isRef=refundedIds.has(s.id);
-        const d=new Date(s.date);
-        return `<tr style="border-top:1px solid var(--border);${isRef?'text-decoration:line-through;color:var(--muted);':''}">
-          <td style="padding:9px 16px;white-space:nowrap">${d.toLocaleDateString()} ${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</td>
-          <td style="padding:9px 16px">${s.soldBy||'—'}</td>
-          <td style="padding:9px 16px;text-transform:capitalize">${s.payment}</td>
-          <td style="padding:9px 16px;text-align:right;font-weight:600">₱${s.total.toFixed(2)}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table></div>`:`<div style="padding:24px;color:var(--muted);text-align:center;font-size:13px">No transactions yet</div>`}
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px">
+    <div style="margin-bottom:12px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Sales Overview</div>
+      <div style="font-size:12px;color:var(--muted)" id="homeChartSub">All cashiers · total revenue</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--muted);min-width:46px">User:</span>
+      <button class="huser-btn" data-active="1" onclick="setHomeUser('all',this)">All</button>
+      <button class="huser-btn" onclick="setHomeUser('bazaar',this)">Bazaar</button>
+      <button class="huser-btn" onclick="setHomeUser('store',this)">Store</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--muted);min-width:46px">Pay:</span>
+      <button class="hpay-btn huser-btn" data-active="1" onclick="setHomePayment('all',this)">All</button>
+      <button class="hpay-btn huser-btn" onclick="setHomePayment('cash',this)">Cash</button>
+      <button class="hpay-btn huser-btn" onclick="setHomePayment('gcash',this)">GCash</button>
+      <button class="hpay-btn huser-btn" onclick="setHomePayment('card',this)">Card</button>
+      <button class="hpay-btn huser-btn" onclick="setHomePayment('bank transfer',this)">Bank</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--muted);min-width:46px">Period:</span>
+      <button class="hperiod-btn huser-btn" data-active="1" onclick="setHomePeriod('day',this)">Today</button>
+      <button class="hperiod-btn huser-btn" onclick="setHomePeriod('week',this)">Week</button>
+      <button class="hperiod-btn huser-btn" onclick="setHomePeriod('month',this)">Month</button>
+      <button class="hperiod-btn huser-btn" onclick="setHomePeriod('year',this)">Year</button>
+    </div>
+    <div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap" id="homeChartLegend"></div>
+    <div style="position:relative;width:100%;height:220px">
+      <canvas id="homeChartCanvas" role="img" aria-label="Sales overview bar chart">Sales overview chart.</canvas>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)" id="hStatTotalLabel">Total</div><div style="font-size:15px;font-weight:700;color:var(--text);margin-top:3px" id="hStatTotal">₱0</div></div>
+      <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)" id="hStatBazaarLabel">Bazaar</div><div style="font-size:15px;font-weight:700;color:var(--primary);margin-top:3px" id="hStatBazaar">₱0</div></div>
+      <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)" id="hStatStoreLabel">Store</div><div style="font-size:15px;font-weight:700;color:var(--mid-green);margin-top:3px" id="hStatStore">₱0</div></div>
+      <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)" id="hStatTopPayLabel">Top Method</div><div style="font-size:15px;font-weight:700;color:var(--text);margin-top:3px" id="hStatTopPay">—</div></div>
+    </div>
   </div>
 </div>`;
+  _homePeriod='day';_homeUser='all';_homePayment='all';
+  requestAnimationFrame(_buildHomeChart);
 }
 
 async function refreshHistory(){
