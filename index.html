@@ -2395,12 +2395,28 @@ async function renderCashDrawer(){
   const expEntries=entries.filter(e=>e.entry_type==='expense');
   const fmt=v=>'₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-  panel.innerHTML=`<div style="padding:20px 28px 28px;box-sizing:border-box;overflow-y:auto;flex:1;min-height:0">
+  panel.innerHTML=`<style>
+  @media(max-width:768px){
+    .cd-wrap{padding:14px 14px 80px!important}
+    .cd-date-row{flex-direction:column!important;gap:10px!important;padding:12px 14px!important}
+    .cd-date-inputs{flex:unset!important;min-width:unset!important;width:100%!important;justify-content:space-between}
+    .cd-hero{padding:20px 16px!important}
+    .cd-hero-amt{font-size:36px!important}
+    .cd-noncash-grid{grid-template-columns:1fr 1fr 1fr!important}
+    .cd-noncash-card{padding:12px 8px!important}
+    .cd-noncash-lbl{font-size:10px!important}
+    .cd-noncash-val{font-size:18px!important}
+    .cd-stat-grid{grid-template-columns:1fr 1fr!important}
+    .cd-stat-full{grid-column:span 2!important}
+    .cd-list-grid{grid-template-columns:1fr!important}
+  }
+  </style>
+  <div class="cd-wrap" style="padding:20px 28px 28px;box-sizing:border-box;overflow-y:auto;flex:1;min-height:0">
   <div style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:500">${dateStr}</div>
 
   <!-- Date range picker -->
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:220px">
+  <div class="cd-date-row" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div class="cd-date-inputs" style="display:flex;align-items:center;gap:10px;flex:1;min-width:220px">
       <div style="display:flex;flex-direction:column;gap:3px">
         <span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">From</span>
         <input type="date" id="cdFromDate" value="${_cdFrom}" max="${_cdTo}"
@@ -2422,29 +2438,29 @@ async function renderCashDrawer(){
   </div>
 
   <!-- Cash In Drawer hero -->
-  <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:28px;margin-bottom:12px;text-align:center">
+  <div class="cd-hero" style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:28px;margin-bottom:12px;text-align:center">
     <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Cash In Drawer</div>
-    <div style="font-size:48px;font-weight:900;color:#fff;letter-spacing:-.5px">${fmt(cashInDrawer)}</div>
+    <div class="cd-hero-amt" style="font-size:48px;font-weight:900;color:#fff;letter-spacing:-.5px">${fmt(cashInDrawer)}</div>
   </div>
 
   <!-- Non-cash payment breakdown -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
-    <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
-      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">GCash Sales</div>
-      <div style="font-size:22px;font-weight:800;color:#fff">${fmt(gcashSales)}</div>
+  <div class="cd-noncash-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
+    <div class="cd-noncash-card" style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
+      <div class="cd-noncash-lbl" style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">GCash Sales</div>
+      <div class="cd-noncash-val" style="font-size:22px;font-weight:800;color:#fff">${fmt(gcashSales)}</div>
     </div>
-    <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
-      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Card Sales</div>
-      <div style="font-size:22px;font-weight:800;color:#fff">${fmt(cardSales)}</div>
+    <div class="cd-noncash-card" style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
+      <div class="cd-noncash-lbl" style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Card Sales</div>
+      <div class="cd-noncash-val" style="font-size:22px;font-weight:800;color:#fff">${fmt(cardSales)}</div>
     </div>
-    <div style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
-      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Bank Transfer</div>
-      <div style="font-size:22px;font-weight:800;color:#fff">${fmt(bankSales)}</div>
+    <div class="cd-noncash-card" style="background:linear-gradient(135deg,#1a3a2a 0%,#2d6a4f 100%);border-radius:var(--radius);padding:16px 20px;text-align:center">
+      <div class="cd-noncash-lbl" style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Bank Transfer</div>
+      <div class="cd-noncash-val" style="font-size:22px;font-weight:800;color:#fff">${fmt(bankSales)}</div>
     </div>
   </div>
 
   <!-- 5 stat mini-cards (clickable) -->
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+  <div class="cd-stat-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
     <div onclick="_cdOpenStartingCash(${startCash.toFixed(2)})"
       style="background:#e8f5e9;border:1.5px solid #a5d6a7;border-radius:var(--radius);padding:14px;cursor:pointer;transition:box-shadow .15s;position:relative"
       title="Click to edit" onmouseover="this.style.boxShadow='0 4px 16px rgba(45,106,79,.2)'" onmouseout="this.style.boxShadow='none'">
@@ -2457,7 +2473,7 @@ async function renderCashDrawer(){
       <div style="font-size:11px;color:#e8a87c;font-weight:600;margin-bottom:6px">Cash Added ✎</div>
       <div style="font-size:18px;font-weight:800;color:#e8a87c">${fmt(cashAdded)}</div>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">
+    <div class="cd-stat-full" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">
       <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px">Cash Sales</div>
       <div style="font-size:18px;font-weight:800;color:var(--text)">${fmt(cashSales)}</div>
     </div>
@@ -2476,7 +2492,7 @@ async function renderCashDrawer(){
   </div>
 
   <!-- Bottom two columns -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div class="cd-list-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
 
     <!-- Cash Added -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
