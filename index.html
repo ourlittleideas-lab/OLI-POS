@@ -2853,6 +2853,7 @@ async function _dtrRenderStaff(el){
             <td style="padding:10px 12px">
               <button onclick="_dtrOpenStaffModal(${s.id})" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;font-size:11px;cursor:pointer;color:var(--text);margin-right:4px">Edit</button>
               <button onclick="_dtrToggleStaff(${s.id},${s.is_active})" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;font-size:11px;cursor:pointer;color:${s.is_active?'#e53935':'var(--primary)'}">${s.is_active?'Deactivate':'Activate'}</button>
+              <button onclick="_dtrDeleteStaff(${s.id},'${s.name.replace(/'/g,"\\'")}')" style="padding:5px 10px;border-radius:6px;border:1px solid #f48fb1;background:transparent;font-size:11px;cursor:pointer;color:#e53935;margin-left:4px">Delete</button>
             </td>
           </tr>`).join('')}
         </tbody>
@@ -2915,6 +2916,14 @@ async function _dtrSaveStaff(){
 async function _dtrToggleStaff(id,isActive){
   if(!confirm(`${isActive?'Deactivate':'Activate'} this staff member?`))return;
   await sb.from('dtr_staff').update({is_active:!isActive}).eq('id',id);
+  _dtrSwitch('staff');
+}
+
+async function _dtrDeleteStaff(id,name){
+  if(!confirm(`Permanently delete "${name}"?\n\nAll their clock logs and salary records will also be deleted from the database. This cannot be undone.`))return;
+  const{error}=await sb.from('dtr_staff').delete().eq('id',id);
+  if(error){alert('Failed to delete: '+error.message);return;}
+  toast(`${name} has been permanently deleted`,'success');
   _dtrSwitch('staff');
 }
 
