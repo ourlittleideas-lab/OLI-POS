@@ -1345,9 +1345,18 @@ async function createAdmin(){
 
 function doLogout(){
   if(!confirm('Sign out of OLI?'))return;
+  // Dismiss any focused element to prevent iOS native pickers/tooltips from lingering
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  // Close cash drawer modal if open
+  const cdm=document.getElementById('cdModal');
+  if(cdm)cdm.style.display='none';
   localStorage.removeItem('oli_session');
   currentUser=null;
   cart={};
+  _cdFrom='';_cdTo='';
+  // Reset PIN field so it's empty for next login
+  const pinEl=document.getElementById('loginPin');
+  if(pinEl)pinEl.value='';
   // Hide app + sidebar, show login immediately (no page reload)
   document.getElementById('app').style.display='none';
   document.getElementById('desktopSidebar').style.display='none';
