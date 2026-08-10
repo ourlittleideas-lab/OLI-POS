@@ -791,6 +791,40 @@ tbody tr:hover td{background:var(--bg)}
   </div>
   <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
     <div class="stats-grid" id="reportsStats"></div>
+    <!-- Admin-only: Full Sales Data Export -->
+    <div id="adminExportSection" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px">
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px">📊 Full Sales Export</div>
+      <div style="margin-bottom:16px"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Period</label>
+          <select id="expPeriod" onchange="document.getElementById('expCustomRow').style.display=this.value==='custom'?'flex':'none'" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text)">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="week">This Week</option>
+            <option value="lastweek">Last Week</option>
+            <option value="month">This Month</option>
+            <option value="lastmonth">Last Month</option>
+            <option value="year">This Year</option>
+            <option value="lastyear">Last Year</option>
+            <option value="custom">Custom Range</option>
+          </select>
+        </div>
+        <div id="expCustomRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
+          <div>
+            <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">From</label>
+            <input type="date" id="expFrom" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text)">
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">To</label>
+            <input type="date" id="expTo" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text)">
+          </div>
+        </div>
+        <button onclick="adminExportSales()" style="padding:9px 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">📥 Download Excel</button>
+      </div>
+      <div id="expStatus" style="font-size:12px;color:var(--muted);margin-top:10px;min-height:16px"></div>
+    </div>
+
     <div class="analytics-section" style="border:none;background:transparent">
       <div class="chart-tabs" id="rptChartTabs">
         <button class="chart-tab active" onclick="switchReportChart('profit',this)">Top Product</button>
@@ -1470,6 +1504,7 @@ function applyRolePermissions(){
   if(g('tabRefund'))g('tabRefund').style.display=r==='admin'?'':'none';
   if(g('tabCashDrawer'))g('tabCashDrawer').style.display='';
   if(g('tabDTR'))g('tabDTR').style.display='';
+  if(g('adminExportSection'))g('adminExportSection').style.display=r==='admin'?'':'none';
   if(g('tabStaff'))g('tabStaff').style.display=r==='admin'?'':'none';
   // Mobile bottom nav: 3rd tab differs by role
   if(g('mnavReports'))g('mnavReports').style.display=r==='manager'?'':'none';
@@ -3648,6 +3683,136 @@ function renderReports(){
     <div class="stat-card"><div class="stat-val">${totalItems}</div><div class="stat-label">Items Sold</div></div>`;
 
   renderReportChart();
+}
+
+function adminExportSales(){
+  if(currentUser?.role!=='admin'){toast('Admin access only','error');return;}
+  const period=document.getElementById('expPeriod').value;
+  const statusEl=document.getElementById('expStatus');
+
+  // Determine date range strings (YYYY-MM-DD) — same logic as getPeriodDates
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  let from,to;
+  if(period==='today'){from=to=ymd(now);}
+  else if(period==='yesterday'){const d=new Date(now);d.setDate(d.getDate()-1);from=to=ymd(d);}
+  else if(period==='week'){const d=new Date(now);const day=d.getDay();d.setDate(d.getDate()-day+(day===0?-6:1));from=ymd(d);to=ymd(now);}
+  else if(period==='lastweek'){const d=new Date(now);const day=d.getDay();const mon=new Date(d);mon.setDate(d.getDate()-day-(day===0?6:day-1)-7);const sun=new Date(mon);sun.setDate(mon.getDate()+6);from=ymd(mon);to=ymd(sun);}
+  else if(period==='month'){from=`${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;to=ymd(now);}
+  else if(period==='lastmonth'){const d=new Date(now.getFullYear(),now.getMonth()-1,1);const last=new Date(now.getFullYear(),now.getMonth(),0);from=ymd(d);to=ymd(last);}
+  else if(period==='year'){from=`${now.getFullYear()}-01-01`;to=ymd(now);}
+  else if(period==='lastyear'){from=`${now.getFullYear()-1}-01-01`;to=`${now.getFullYear()-1}-12-31`;}
+  else if(period==='custom'){
+    from=document.getElementById('expFrom').value;
+    to=document.getElementById('expTo').value;
+    if(!from||!to){statusEl.textContent='Please select both From and To dates.';return;}
+  }
+
+  // Filter from in-memory sales array — same as existing exportCSV, uses s.date (mapped from created_at)
+  let filtered=sales.filter(s=>s.date>=from&&s.date<=to+'T23:59:59');
+  if(!filtered.length){statusEl.textContent='No sales data found for this period.';return;}
+
+  // Products map keyed by SKU for current stock lookup
+  const skuMap={};products.forEach(p=>{skuMap[p.sku]=p;});
+
+  const MISC_RATE=0.05;
+  const rows=[['Date','Time','Transaction ID','Product','SKU','Qty','Unit Price (₱)','Net Cost (₱)','Gross Amount (₱)','5% Misc Deduction (₱)','Net Profit (₱)','Remaining Stock','Cashier','Payment Type','Type']];
+
+  filtered.forEach(sale=>{
+    const dt=new Date(sale.date);
+    const dateStr=ymd(dt);
+    const timeStr=dt.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const isRefund=sale.payment==='refund';
+    const items=Array.isArray(sale.items)?sale.items:[];
+
+    if(!items.length){
+      const gross=Math.abs(Number(sale.total));
+      const misc=+(gross*MISC_RATE).toFixed(2);
+      rows.push([dateStr,timeStr,sale.id,'—','—','—','—','—',gross.toFixed(2),misc.toFixed(2),isRefund?'—':(gross-misc).toFixed(2),'—',sale.soldBy||'—',sale.payment,isRefund?'Refund':'Sale']);
+    } else {
+      items.forEach(item=>{
+        const qty=Number(item.qty)||1;
+        const unitPrice=Number(item.price)||0;
+        // same fallback logic as getSaleCost: stored cost first, then current product table
+        const unitCost=item.cost!=null?Number(item.cost):(products.find(p=>p.sku===item.sku)?.cost||0);
+        const grossAmt=unitPrice*qty;
+        const netCost=unitCost*qty;
+        const misc=+(grossAmt*MISC_RATE).toFixed(2);
+        const netProfit=+(grossAmt-netCost-misc).toFixed(2);
+        // current stock from products (best effort — may differ from time of sale)
+        const curProd=skuMap[item.sku];
+        const stock=curProd?.stock!=null?curProd.stock:'—';
+        rows.push([
+          dateStr,timeStr,sale.id,
+          item.name||'—',item.sku||'—',
+          isRefund?-qty:qty,
+          unitPrice.toFixed(2),netCost.toFixed(2),
+          grossAmt.toFixed(2),misc.toFixed(2),
+          isRefund?'—':netProfit.toFixed(2),
+          stock,
+          sale.soldBy||'—',sale.payment,
+          isRefund?'Refund':'Sale'
+        ]);
+      });
+    }
+  });
+
+  // Build Excel XML (SpreadsheetML) so we can apply cell colors
+  // Column indices (0-based): 10=Net Profit, 11=Remaining Stock
+  const esc=v=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  // Compute total net profit from data rows (skip header, skip '—' refund rows)
+  const totalNetProfit=rows.slice(1).reduce((sum,row)=>{
+    const v=row[10];
+    return v!=='—'&&v!=null?sum+Number(v):sum;
+  },0);
+
+  const xmlRows=rows.map((row,rIdx)=>{
+    const cells=row.map((val,cIdx)=>{
+      const isHeader=rIdx===0;
+      const isNetProfit=!isHeader&&cIdx===10;
+      const stockVal=!isHeader&&cIdx===11?val:null;
+      const isLowStock=stockVal!==null&&stockVal!=='—'&&Number(stockVal)<10;
+      const isNum=!isHeader&&[5,6,7,8,9,10,11].includes(cIdx)&&val!=='—';
+      let style='';
+      if(isHeader)style='ss:StyleID="hdr"';
+      else if(isNetProfit)style='ss:StyleID="red"';
+      else if(isLowStock)style='ss:StyleID="red"';
+      const type=isNum?'Number':'String';
+      const cellVal=isNum&&val!=='—'?Number(val):val;
+      return `<Cell ${style}><Data ss:Type="${type}">${esc(cellVal)}</Data></Cell>`;
+    }).join('');
+    return `<Row>${cells}</Row>`;
+  }).join('');
+
+  // Empty row + total row (2 rows below last data row)
+  const emptyRow=`<Row><Cell><Data ss:Type="String"></Data></Cell></Row>`;
+  const totalRow=`<Row>`+
+    Array(10).fill(`<Cell><Data ss:Type="String"></Data></Cell>`).join('')+
+    `<Cell ss:StyleID="totalAmt"><Data ss:Type="Number">${totalNetProfit.toFixed(2)}</Data></Cell>`+
+    `</Row>`;
+
+  const xml=`<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="hdr"><Font ss:Bold="1"/></Style>
+  <Style ss:ID="red"><Font ss:Color="#CC0000"/></Style>
+  <Style ss:ID="totalAmt"><Font ss:Bold="1" ss:Color="#CC0000"/></Style>
+  <Style ss:ID="Default"></Style>
+ </Styles>
+ <Worksheet ss:Name="OLI Sales Export">
+  <Table>${xmlRows}${emptyRow}${totalRow}</Table>
+ </Worksheet>
+</Workbook>`;
+
+  const a=document.createElement('a');
+  a.href='data:application/vnd.ms-excel;charset=utf-8,'+encodeURIComponent(xml);
+  a.download=`OLI_SalesExport_${from}_to_${to}.xls`;
+  a.click();
+  statusEl.textContent=`✅ Exported ${rows.length-1} row(s) · ${from} to ${to}.`;
 }
 
 function renderReportChart(){
