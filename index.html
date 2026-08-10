@@ -1054,7 +1054,8 @@ tbody tr:hover td{background:var(--bg)}
 
     <div class="form-group">
       <label>Stock</label>
-      <input type="number" id="pStock" placeholder="100" min="0">
+      <input type="number" id="pStock" placeholder="100">
+      <div id="pStockHint" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
     </div>
 
     <div class="modal-actions">
@@ -1861,7 +1862,11 @@ async function confirmRefund(){
   if(type==='full'||type==='item'){
     refundingSale.items.forEach(item=>{
       const p=products.find(x=>x.sku===item.sku);
-      if(p){p.stock+=item.qty;sb.from('products').update({stock:p.stock}).eq('id',p.id).then(()=>{})}
+      if(p){
+        // If item was sold from zero/negative stock, cap restoration at 0 so it doesn't go positive
+        p.stock=p.stock<=0?Math.min(p.stock+item.qty,0):p.stock+item.qty;
+        sb.from('products').update({stock:p.stock}).eq('id',p.id).then(()=>{});
+      }
     });
   }
 
@@ -1914,21 +1919,26 @@ function renderProducts(){
   grid.innerHTML=filtered.length===0
     ?`<div style="color:var(--muted);font-size:14px;grid-column:1/-1;padding:20px 0">No products found</div>`
     :filtered.map(p=>`
-      <div class="product-card ${p.stock===0?'out':''}" onclick="${p.stock>0?`addToCart(${p.id})`:''}">
+      <div class="product-card ${p.stock<=0?'out':''}" onclick="addToCart(${p.id})">
         <div class="product-emoji">${p.emoji}</div>
         <div class="product-name">${p.name}</div>
         <div class="product-sku">${p.sku}</div>
         <div class="product-price">₱${p.price.toFixed(2)}</div>
-        <div class="product-stock">${p.stock===0?'Out of stock':`${p.stock} left`}</div>
+        <div class="product-stock">${p.stock<0?`${p.stock} (negative)`:p.stock===0?'Out of stock':`${p.stock} left`}</div>
       </div>`).join('');
 }
 
 // ─── Cart ──────────────────────────────────────────────────────────────────
 function addToCart(id){
   const p=products.find(x=>x.id===id);
-  if(!p||p.stock===0)return;
+  if(!p)return;
   if(!cart[id])cart[id]=0;
-  if(cart[id]>=p.stock){toast('Max stock reached');return}
+  // Zero stock: ask before adding; already confirmed if item is in cart
+  if(p.stock<=0&&cart[id]===0){
+    if(!confirm(`⚠️ "${p.name}" has zero inventory.\n\nProceed with sale? Stock will go negative.`))return;
+  }
+  // Max stock guard only when stock > 0
+  if(p.stock>0&&cart[id]>=p.stock){toast('Max stock reached');return}
   cart[id]++;
   renderCart();
   toast(`${p.emoji} ${p.name} added`);
@@ -2042,7 +2052,7 @@ async function confirmSale(){
   // Deduct stock locally
   Object.keys(cart).forEach(id=>{
     const p=products.find(x=>x.id==id);
-    if(p)p.stock=Math.max(0,p.stock-cart[id]);
+    if(p)p.stock=p.stock-cart[id]; // allow negative — confirmed by user at point of sale
   });
   const sale={items:saleItems,subtotal,discAmt,discLabel,taxAmt:0,total,disc:0,tax:0,payment:selectedPayment,cashReceived:selectedPayment==='cash'?parseFloat(document.getElementById('cashReceived').value)||0:null,soldBy:currentUser?.name||'Unknown'};
   closeCheckout();
@@ -4540,7 +4550,7 @@ function renderManage(){
           <td style="color:${profit!==null?(profit>=0?'var(--success)':'var(--danger)'):'var(--muted)'};font-weight:600">${profit!==null?'₱'+profit.toFixed(2):'—'}</td>
           <td style="color:${margin!==null?(margin>=0?'var(--success)':'var(--danger)'):'var(--muted)'}">${margin!==null?margin.toFixed(1)+'%':'—'}</td>
           <td style="font-weight:700;color:var(--primary)">₱${p.price.toFixed(2)}</td>
-          <td class="${p.stock<=5?'stock-low':''}">${p.stock}${p.stock<=5?' ⚠':''}${p.stock===0?' (out)':''}</td>
+          <td class="${p.stock<=5?'stock-low':''}">${p.stock}${p.stock<0?' ⚠ (negative)':p.stock===0?' ⚠ (out)':p.stock<=5?' ⚠':''}</td>
           <td>
             <button class="edit-btn" onclick="openProductModal(${p.id})" style="padding:4px 10px;border:1px solid var(--border);border-radius:5px;font-size:12px;cursor:pointer;background:none;margin-right:4px">Edit</button>
             <button onclick="deleteProduct(${p.id})" style="padding:4px 10px;border:1px solid transparent;border-radius:5px;font-size:12px;cursor:pointer;background:none;color:var(--danger)">Delete</button>
@@ -4605,7 +4615,17 @@ function openProductModal(id){
   document.getElementById('pCost').value=p?.cost||'';
   document.getElementById('pMarkup').value=p?.markup||'';
   document.getElementById('pProfit').value=p?.profit||'';
-  document.getElementById('pStock').value=p?.stock??'';
+  const stockEl=document.getElementById('pStock');
+  const stockHint=document.getElementById('pStockHint');
+  if(p&&p.stock<0){
+    stockEl.value='';
+    stockEl.placeholder='Units arriving…';
+    if(stockHint)stockHint.innerHTML=`Current stock: <strong style="color:#e53935">${p.stock}</strong>. Enter units to add — they will be added to current.`;
+  } else {
+    stockEl.value=p?.stock??'';
+    stockEl.placeholder='';
+    if(stockHint)stockHint.textContent='';
+  }
   document.getElementById('pricingPreview').style.display='none';
   if(p?.cost&&p?.price) calcPricing('srp');
   const dl=document.getElementById('catList');
@@ -4617,7 +4637,10 @@ function closeProductModal(){document.getElementById('productModal').classList.r
 async function saveProduct(){
   const name=document.getElementById('pName').value.trim();
   const price=parseFloat(document.getElementById('pPrice').value);
-  const stock=parseInt(document.getElementById('pStock').value);
+  const stockInput=parseInt(document.getElementById('pStock').value);
+  const currentP=editingProductId?products.find(x=>x.id===editingProductId):null;
+  // If current stock is negative, treat input as units arriving (add to current)
+  const stock=(currentP&&currentP.stock<0)?currentP.stock+stockInput:stockInput;
   const cat=document.getElementById('pCat').value.trim()||'General';
   const emoji=document.getElementById('pEmoji').value.trim()||'📦';
   const skuInput=document.getElementById('pSku').value.trim();
