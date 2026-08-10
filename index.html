@@ -2627,8 +2627,15 @@ async function renderDTR(){
   if(!_dtrSalDate)_dtrSalDate=_dtrToday();
   if(!_dtrRptMonth)_dtrRptMonth=_dtrToday().slice(0,7);
   const isAdmin=currentUser?.role==='admin';
-  if(isAdmin){_dtrAdminShell(panel);}
-  else{await _dtrRenderClock(panel);}
+  if(isAdmin){
+    panel.style.overflow='hidden';
+    _dtrAdminShell(panel);
+  } else {
+    // Non-admin: panel itself must scroll
+    panel.style.overflow='auto';
+    panel.style.overflowX='hidden';
+    await _dtrRenderClock(panel);
+  }
 }
 
 function _dtrAdminShell(panel){
