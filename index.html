@@ -2492,7 +2492,7 @@ function _cdPaint(panel,day,entries,allSalesData){
   const cashSales=normalSales.filter(s=>s.payment.toLowerCase()==='cash').reduce((a,s)=>a+Number(s.total),0)-(_rb['cash']||0);
   const gcashSales=normalSales.filter(s=>s.payment.toLowerCase()==='gcash').reduce((a,s)=>a+Number(s.total),0)-(_rb['gcash']||0);
   const cardSales=normalSales.filter(s=>s.payment.toLowerCase()==='card').reduce((a,s)=>a+Number(s.total),0)-(_rb['card']||0);
-  const bankSales=normalSales.filter(s=>s.payment.toLowerCase()==='bank transfer').reduce((a,s)=>a+Number(s.total),0)-(_rb['bank transfer']||0);
+  const bankSales=normalSales.filter(s=>['bank','bank transfer'].includes(s.payment.toLowerCase())).reduce((a,s)=>a+Number(s.total),0)-((_rb['bank']||0)+(_rb['bank transfer']||0));
   const cashAdded=entries.filter(e=>e.entry_type==='cash_added').reduce((a,e)=>a+Number(e.amount),0);
   const cashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='cash').reduce((a,e)=>a+Number(e.amount),0);
   const nonCashExp=entries.filter(e=>e.entry_type==='expense'&&e.expense_type==='non-cash').reduce((a,e)=>a+Number(e.amount),0);
